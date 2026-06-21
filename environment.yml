@@ -1,0 +1,17 @@
+name: rockpile-edgeconv-arxiv
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - numpy
+  - pandas
+  - matplotlib
+  - scipy
+  - scikit-learn
+  - joblib
+  - trimesh
+  - python-docx
+  - pip
+  - pip:
+      - torch --index-url https://download.pytorch.org/whl/cpu
+

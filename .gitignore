@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+
+# Generated local datasets and model checkpoints can be large.
+data/processed/
+outputs/
+*.pt
+*.pth
+*.npz
+
+# Keep committed summary tables and manuscript assets.
+!results/**/*.csv
+!manuscript/figures/*.png
+
+# TeX and Word build products.
+manuscript/*.aux
+manuscript/*.log
+manuscript/*.out
+manuscript/*.toc
+manuscript/*.synctex.gz
+

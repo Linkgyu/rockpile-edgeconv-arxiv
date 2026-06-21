@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this benchmark or code, please cite this repository and the associated arXiv preprint."
+title: "Synthetic Exterior Point-Cloud Benchmark for Rockpile Fragmentation with EdgeConv Edge Affinity"
+authors:
+  - family-names: Ha
+    given-names: Namgyu
+    email: noah.ha.au@gmail.com
+year: 2026
+license: MIT
+repository-code: "https://github.com/Linkgyu/rockpile-edgeconv-arxiv"
+keywords:
+  - rock fragmentation
+  - point cloud
+  - EdgeConv
+  - DGCNN
+  - particle size distribution
+  - mining
+
