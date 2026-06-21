@@ -45,6 +45,15 @@ SECTIONS = [
         ],
     ),
     (
+        "Related Work and Benchmark Positioning",
+        [
+            "Fragmentation measurement sits between blasting, materials handling, crushing, and sustainability. Blast outcomes influence downstream energy use, productivity, rehandling, and oversize management, so fragmentation monitoring is part of a broader mine-to-mill control problem rather than a purely visual segmentation problem.",
+            "Image-based systems such as WipFrag and related digital image-processing approaches have been widely used because cameras are cheap and operationally convenient. Their limitation is not usefulness; it is the unavoidable ambiguity of inferring three-dimensional particle size from a two-dimensional visible surface.",
+            "Three-dimensional reconstruction methods reduce some of that ambiguity. Structure-from-motion, multi-view stereo, and lidar workflows recover scale, surface orientation, and spatial context. Yet these data sources still observe only exposed surfaces. A surface scan cannot see buried material, so a fair benchmark must separate visible-surface proxy recovery from full-volume PSD measurement.",
+            "Point-cloud learning offers useful tools for this exterior-surface problem, but the target must be chosen carefully. Classical partition metrics such as adjusted Rand index and normalized mutual information are useful diagnostics, but a P80 proxy can be sensitive to a small number of large over-merged or over-split components. The benchmark therefore reports both edge-learning behaviour and PSD proxy behaviour.",
+        ],
+    ),
+    (
         "Synthetic Fragment Generation",
         [
             "The benchmark begins with a synthetic fragment library. Each fragment is a rock-like mesh with a known identity, volume, and equivalent spherical diameter. Fragment meshes are generated from randomly sampled surface directions, anisotropic axis scaling, and radial jitter, then stored as convex rock-like hulls.",
@@ -116,14 +125,22 @@ SECTIONS = [
 ]
 
 REFERENCES = [
+    "Laurence, D. Establishing a sustainable mining operation: an overview. Journal of Cleaner Production, 2011.",
     "Cunningham, C. V. B. The Kuz-Ram model for prediction of fragmentation from blasting. 1st International Symposium on Rock Fragmentation by Blasting, 1983.",
     "Ouchterlony, F. The Swebrec function: linking fragmentation by blasting and crushing. Mining Technology, 2005.",
+    "Palangio, T. C. et al. WIPFRAG: a breakthrough in fragmentation measurement. 21st Annual Conference on Explosives and Blasting Technique, 1995.",
+    "Siddiqui, F. I. et al. Measurement of size distribution of blasted rock using digital image processing. Journal of King Abdulaziz University: Engineering Sciences, 2009.",
     "Westoby, M. J. et al. Structure-from-Motion photogrammetry: a low-cost, effective tool for geoscience applications. Geomorphology, 2012.",
+    "Eltner, A. et al. Image-based surface reconstruction in geomorphometry: merits, limits and developments. Earth Surface Dynamics, 2016.",
+    "Anderson, K. et al. Low-budget topography: Structure from Motion photogrammetry in geoscience applications. Progress in Physical Geography, 2019.",
     "Engin, I. C. et al. Practical measurement of size distribution of blasted rocks using LiDAR scan data. Rock Mechanics and Rock Engineering, 2020.",
+    "Onederra, I. et al. Measuring blast fragmentation at Esperanza mine using high-resolution 3D laser scanning. Mining Technology, 2015.",
     "Wang, Y. et al. Dynamic Graph CNN for learning on point clouds. ACM Transactions on Graphics, 2019.",
     "Qi, C. R. et al. PointNet: Deep learning on point sets for 3D classification and segmentation. CVPR, 2017.",
     "Qi, C. R. et al. PointNet++: Deep hierarchical feature learning on point sets in a metric space. NeurIPS, 2017.",
     "Ester, M. et al. A density-based algorithm for discovering clusters in large spatial databases with noise. KDD, 1996.",
+    "Hubert, L.; Arabie, P. Comparing partitions. Journal of Classification, 1985.",
+    "Vinh, N. X. et al. Information theoretic measures for clusterings comparison. Journal of Machine Learning Research, 2010.",
     "Pedregosa, F. et al. Scikit-learn: Machine learning in Python. Journal of Machine Learning Research, 2011.",
     "Paszke, A. et al. PyTorch: An imperative style, high-performance deep learning library. NeurIPS, 2019.",
 ]
