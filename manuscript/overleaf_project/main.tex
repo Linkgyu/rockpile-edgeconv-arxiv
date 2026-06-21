@@ -1,0 +1,260 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{authblk}
+
+\title{Synthetic Exterior Point-Cloud Benchmarking for Rockpile Fragmentation: Fragment Generation, Rockpile Construction, Exterior-Only Learning, and EdgeConv P80 Estimation}
+\author[1]{Namgyu (Noah) Ha}
+\affil[1]{Department of Energy and Resources Engineering, National Korea Maritime and Ocean University, Busan, Republic of Korea}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Reliable rock-fragmentation monitoring is useful for blast assessment and mine-to-mill control, but real rockpile point clouds rarely provide point-level fragment labels or independent particle-size-distribution (PSD) references. This paper presents a synthetic exterior point-cloud benchmark designed as a pre-field testbed for visible-surface PSD proxy estimation. The workflow starts from a library of synthetic rock-like fragment meshes with known volume and identity. These fragments are placed into labelled rockpile scenes, converted to exterior-only point-cloud scans, and used to train a graph edge-affinity model. The learning target is not a scene-specific fragment-ID class; instead, a DGCNN/EdgeConv model predicts whether neighbouring exterior points belong to the same fragment. Connected components of high-affinity edges become visible-surface clusters, and those clusters are converted into PSD and P80 proxy estimates. This formulation was chosen because fragment IDs are arbitrary across scenes, because local boundary decisions depend on neighbourhood geometry, and because hand-designed clustering rules such as DBSCAN or normal/curvature region growing struggle with irregular point density, touching particles, and over-merged surface patches. The latest benchmark run uses 100 no-boundary synthetic exterior scenes with 150 requested fragments per scene and a 60/20/20 train/validation/test split. The EdgeConv model reached validation average precision of 0.9313 after 24 epochs. However, validation selected a high edge threshold of 0.997, and the held-out test mean absolute P80 error was 19.04\% with a mean noise fraction of 0.603. The result shows that EdgeConv learns useful same-fragment affinity, but it also makes clear that threshold calibration and connected-component post-processing remain the main obstacle before field deployment.
+\end{abstract}
+
+\textbf{Keywords:} rock fragmentation; synthetic rockpile; exterior point cloud; visible-surface PSD proxy; EdgeConv; DGCNN; particle size distribution; P80; photogrammetry; mining
+
+\section{Introduction}
+Post-blast fragmentation affects loading, hauling, crushing, and comminution. Excessive fines or oversize material can lower equipment productivity and increase energy demand, so fragmentation monitoring is relevant to mine-to-mill decision support \cite{cunningham1983,ouchterlony2005}. Operational systems have traditionally relied on two-dimensional images, including commercial and research workflows for visible fragmentation assessment \cite{palangio1995,siddiqui2009}. Those systems are practical, but a projected image must infer scale, overlap, occlusion, and hidden fragment boundaries from a single visible surface.
+
+Three-dimensional photogrammetry and lidar point clouds provide richer surface geometry. They preserve relative position, local slope, and surface continuity, and are therefore attractive for muckpile analysis \cite{westoby2012,anderson2019,engin2020,onederra2015}. Nevertheless, a rockpile point cloud still observes only the exterior surface. Buried contacts and the back sides of fragments are unavailable. Consequently, a PSD estimated from a surface point cloud should be interpreted as a visible-surface proxy unless it is calibrated against independent field measurements.
+
+The distinction between a measured PSD and a visible-surface PSD proxy is central to this paper. A full synthetic pile contains all fragment surfaces and all labels, but a camera or scanner does not. If a learning benchmark uses hidden contact surfaces, the target becomes easier than the field problem and may overstate model performance. The benchmark reported here therefore asks a narrower and more reproducible question: from labelled synthetic rock fragments arranged into rockpiles, how much useful P80 proxy information can be recovered when the learning model sees only exterior points?
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.88\linewidth]{figures/workflow_schematic.png}
+\caption{Benchmark workflow. Synthetic fragments are generated with known identities and volumes, placed into labelled rockpile scenes, converted to exterior-only point clouds, and used to train an edge-affinity model. The reported quantitative stage is synthetic; field validation with independent PSD references is a separate stage.}
+\label{fig:workflow}
+\end{figure}
+
+The contributions are fourfold. First, the paper describes the complete benchmark narrative from fragment generation through rockpile construction and exterior-only scan extraction. Second, it explains why edge-affinity learning is better posed than direct fragment-ID classification for multi-scene synthetic rockpiles. Third, it motivates the use of DGCNN/EdgeConv over purely geometric clustering or global point classifiers for this task. Fourth, it reports the latest 100-scene no-boundary synthetic run and interprets the result as a surface-cluster PSD proxy rather than solved fragment instance segmentation.
+
+\section{Related Work and Benchmark Positioning}
+Fragmentation measurement sits between blasting, materials handling, crushing, and sustainability. Blast outcomes influence downstream energy use, productivity, rehandling, and oversize management, so fragmentation monitoring is part of a broader mine-to-mill control problem rather than a purely visual segmentation problem \cite{laurence2011,cunningham1983,ouchterlony2005}. Image-based systems such as WipFrag and related digital image-processing approaches have been widely used because cameras are cheap and operationally convenient \cite{palangio1995,siddiqui2009}. Their limitation is not usefulness; it is the unavoidable ambiguity of inferring three-dimensional particle size from a two-dimensional visible surface.
+
+Three-dimensional reconstruction methods reduce some of that ambiguity. Structure-from-motion, multi-view stereo, and lidar workflows have become common in geoscience because they recover scale, surface orientation, and spatial context \cite{westoby2012,eltner2016,anderson2019}. In rockpile applications, lidar-based measurement has demonstrated the potential of 3D data for blasted-rock size estimation \cite{engin2020,onederra2015}. Yet these data sources still observe only exposed surfaces. A surface scan cannot see buried material, so a fair benchmark must separate visible-surface proxy recovery from full-volume PSD measurement.
+
+Point-cloud learning offers useful tools for this exterior-surface problem, but the target must be chosen carefully. PointNet and PointNet++ established strong point-set learning baselines, while DGCNN introduced EdgeConv for local graph-based feature learning \cite{qi2017pointnet,qi2017pointnetpp,wang2019}. Classical clustering methods such as DBSCAN remain important because they provide interpretable non-learning baselines \cite{ester1996}. However, cluster quality and PSD quality are not identical. Partition metrics such as adjusted Rand index and normalized mutual information are useful diagnostics \cite{hubert1985,vinh2010}, but a P80 proxy can be sensitive to a small number of large over-merged or over-split components. The benchmark therefore reports both edge-learning behaviour and PSD proxy behaviour.
+
+\section{Materials and Methods}
+\subsection{Synthetic Fragment Mesh Library}
+The benchmark begins before pile construction. A library of rock-like triangular fragment meshes is generated with the Synthetic\_Rockpile workflow. Each mesh has a persistent fragment identifier, volume, equivalent spherical diameter, and mesh path. This is important because the learning labels do not originate from a manual drawing on a point cloud; they originate from the synthetic fragment identity before the pile exists.
+
+The fragments are irregular convex to weakly angular meshes rather than spheres. Their role is not to prove that the synthetic fracture process perfectly reproduces blasted rock. Their role is to provide a controlled, labelled population in which each fragment can be selected, placed, sampled, hidden, exposed, and evaluated without losing its identity. In real field scans, fragment labels and full-volume PSD references are difficult or impossible to obtain at point level. Here, those references are known by construction.
+
+For each scene, 150 fragments are sampled without replacement from the fragment catalogue. Larger fragments are not assigned a special semantic class; they simply carry larger volumes and equivalent diameters. The reference PSD for a scene is computed from these known fragment volumes using equivalent spherical diameter. This reference is independent of the model prediction, so the downstream P80 comparison tests the complete exterior-clustering pipeline rather than rewarding a method for reproducing its own clusters.
+
+\subsection{Rockpile Construction Backend}
+The generated fragments are then arranged into rockpile scenes. Several options were tested during development, including the original Synthetic\_Rockpile cone/drop heuristic, sequential-drop soft-sphere DEM, Project Chrono convex-hull contact, and clump contact. The fully dynamic sequential-drop variants were visually attractive but were too expensive or numerically sensitive for producing 100 repeatable no-boundary scenes. In particular, boundary-free sequential release tended to roll fragments away from the pile or produce contact-instability outliers unless the release interval, damping, and contact representation were tuned very conservatively.
+
+The reported dataset therefore uses the physics-informed realistic-rockpile generator in a no-boundary envelope-relax configuration with axis-clump contact. The method is best understood as a soft-sphere DEM surrogate for creating stable labelled piles, not as a calibrated FDEM blast simulation. Initial fragment centres are sampled inside a compact pile envelope. Gravity, damping, ground contact, and fragment-fragment contact are then integrated for a fixed number of steps. The visual geometry remains the original fragment mesh; the contact representation is an axis-aligned clump approximation used for stable, faster collision response.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.88\linewidth]{figures/synthetic_generation_schematic.png}
+\caption{Synthetic generation sequence. Rock-like meshes are created with known fragment metadata, arranged into labelled piles, sampled as point clouds, and filtered to approximate exterior scan visibility.}
+\label{fig:generation}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Production rockpile generation settings used for the 100-scene dataset. The settings describe the reported no-boundary envelope-relax/axis-clump production run, not the earlier Chrono trial runs.}
+\label{tab:pile-settings}
+\begin{tabular}{ll}
+\toprule
+Item & Value used in reported dataset \\
+\midrule
+Placement backend & physics-informed soft-sphere DEM surrogate \\
+Placement mode & envelope\_relax \\
+Contact model & axis\_clump \\
+Requested fragments per scene & 150 \\
+Generated scenes & 100 \\
+Scene split & 60 train / 20 validation / 20 test \\
+DEM steps and time step & 800 steps, $\Delta t = 5.0\times10^{-4}$ s \\
+Gravity & 9.81 m s$^{-2}$ \\
+Density & 2650 kg m$^{-3}$ \\
+Normal stiffness & $3.5\times10^{4}$ N m$^{-1}$ \\
+Normal damping & 115 N s m$^{-1}$ \\
+Tangential damping & 65 N s m$^{-1}$ \\
+Fragment friction coefficient & 0.88 \\
+Ground friction coefficient & 1.05 \\
+Collision radius scale & 0.55 \\
+Clump radius scale / spread scale & 0.30 / 0.48 \\
+Linear / angular damping & 0.028 / 0.018 \\
+Temporary confinement wall & none in production no-boundary run \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Material and Contact Interpretation}
+The density value, 2650 kg m$^{-3}$, corresponds to a generic hard-rock density and is used to convert known mesh volumes into masses for the DEM surrogate. The contact parameters are numerical DEM parameters rather than laboratory-calibrated elastic moduli. In other words, the reported generator does not claim to reproduce grain-scale fracture, asperity-scale contact, or complete blast muckpile mechanics. The parameters were selected to produce stable piles with plausible height, base radius, and visible-fragment exposure while retaining exact fragment labels.
+
+This distinction matters for interpretation. A high-fidelity field simulator would require calibrated rock stiffness, fracture, shape distribution, bench geometry, blast throw, and post-blast interaction. The present generator is narrower: it provides labelled, repeatable exterior point clouds for training and testing segmentation-to-PSD algorithms. It is therefore suitable as a pre-field benchmark, while field deployment still requires independent validation against real muckpile scans and PSD references.
+
+\subsection{Mesh Placement and Exterior Point-Cloud Sampling}
+After DEM relaxation, the original fragment meshes are placed at their final centres and orientations. Surface points are then sampled from the placed meshes in proportion to fragment volume, with a minimum point allocation for small fragments. The full sampled pile still contains hidden surfaces: underside points, buried contact surfaces, and internal surfaces that would not be visible to a camera or lidar scanner. These points are useful for label transfer but are not used directly for training.
+
+Figure \ref{fig:mesh-exterior} shows the difference between the mesh-level pile representation and the actual exterior point-cloud target used by the learning pipeline. The left panel visualises the fragment mesh placement for scene 000 using the stored scene metadata. The right panel shows the retained exterior-only labelled points for the same scene. The model is trained on the right-panel target, not on the full mesh surface.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/rockpile_mesh_exterior_scene000.png}
+\caption{Scene 000 mesh-level pile visualisation and exterior scan target. The mesh view shows source fragment meshes reconstructed at the stored scene centres and DEM orientations for visual inspection. The learning target is the exterior-only point cloud on the right, where colours denote retained fragment labels.}
+\label{fig:mesh-exterior}
+\end{figure}
+
+\subsection{Exterior-Only Scan Construction}
+The exterior scan construction is deliberately stricter than simple random surface sampling. A real photogrammetric or lidar scan observes only exposed surfaces from finite viewpoints, so the synthetic benchmark removes hidden and contact-like samples before graph construction. First, five default viewpoints are placed around the pile: four side viewpoints and one overhead viewpoint. For each viewpoint, points are binned in azimuth-elevation angle, and only the nearest point in each angular bin is retained. The angular bin width is 0.24 degrees in the reported dataset.
+
+Second, the union of viewpoint-visible points is filtered by a plan-view height envelope. Points are binned in the $x$-$y$ plane using a 0.035 m grid. Within each grid cell, the local maximum elevation is estimated, and only points within 0.030 m of that upper envelope are retained. This second pass is important because line-of-sight filtering on a point-sampled synthetic pile can still keep contact or interior samples through small gaps. The height-envelope filter changes the problem from full-pile surface grouping to upper-exterior surface grouping, which is closer to what an operational scan would provide.
+
+After exterior filtering, a small coordinate perturbation with standard deviation 0.0015 m is added, and a random density keep fraction between 0.78 and 0.92 is applied to mimic non-uniform point-cloud density. Normals and curvature are estimated from the exterior points using 30 nearest neighbours. A $k=12$ nearest-neighbour graph is then built on the exterior point coordinates. Edge labels are exact: an edge is positive if both endpoint points retain the same original fragment identity and negative otherwise.
+
+\begin{table}[t]
+\centering
+\caption{Exterior scan and graph construction settings. These settings define the actual learning target used by EdgeConv.}
+\label{tab:exterior-settings}
+\begin{tabular}{ll}
+\toprule
+Item & Value \\
+\midrule
+Exterior viewpoint set & four side viewpoints plus one overhead viewpoint \\
+Angular nearest-surface bin & 0.24 degrees \\
+Height-envelope grid & 0.035 m in plan view \\
+Height-envelope tolerance & 0.030 m below local maximum elevation \\
+Coordinate noise after filtering & 0.0015 m standard deviation \\
+Random density keep fraction & uniform between 0.78 and 0.92 \\
+Normal/curvature neighbourhood & 30 nearest neighbours \\
+Learning graph & 12-nearest-neighbour graph \\
+Edge label & same-fragment vs different-fragment endpoint identity \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Dataset Summary}
+The latest production index contains 100 scenes with scene-level splitting: 60 training scenes, 20 validation scenes, and 20 held-out test scenes. The mean visible-fragment count after exterior filtering is 146.68, because a few requested fragments can be fully hidden or removed by the exterior filter. The mean exterior point count is 5735.63, the mean base radius is 0.898 m, and the mean pile height is 1.084 m. Scene-level splitting is used to avoid leakage: no points or graph edges from a training pile appear in validation or test scenes.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.72\linewidth]{figures/dem_noboundary_relax150_scene000_preview.png}
+\caption{Representative exterior point cloud from the no-boundary 150-fragment dataset. Colours indicate retained fragment labels on the exterior scan surface.}
+\label{fig:scene}
+\end{figure}
+
+\section{Why Edge Affinity and Why DGCNN/EdgeConv?}
+Direct point classification into fragment identifiers is poorly posed across scenes. Fragment 17 in one pile has no semantic relation to fragment 17 in another pile. A transferable model should therefore learn a relation, not a fixed label vocabulary. The benchmark uses edge affinity: for each edge in a local neighbourhood graph, the model predicts whether the two endpoint points belong to the same underlying fragment.
+
+This edge-affinity formulation also matches the physical structure of the problem. Fragment boundaries are local. A point belongs with its neighbours if their positions, normals, curvature, and edge geometry are consistent with the same visible rock surface. Conversely, neighbouring points on different fragments may be spatially close but separated by a change in normal direction, height jump, curvature, or local surface continuity.
+
+DGCNN/EdgeConv was selected because it learns local geometric relationships on point-cloud graphs \cite{wang2019}. Compared with a global PointNet-style descriptor \cite{qi2017pointnet}, EdgeConv better preserves local boundary information. Compared with PointNet++ \cite{qi2017pointnetpp}, the implementation is compact and directly suited to edge-pair supervision. Compared with a simple MLP edge classifier, EdgeConv embeds each point using graph neighbourhood context before scoring an edge, so the edge decision is not based only on hand-designed pair features. Compared with DBSCAN or normal/curvature region growing \cite{ester1996}, it can learn how multiple cues trade off rather than relying on a fixed radius, angle, or smoothness threshold.
+
+These advantages do not make DGCNN a magic fragment segmenter. They make it a reasonable controlled baseline for the transferable part of the problem: learning same-fragment affinity from exterior geometry when labels are available synthetically.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.88\linewidth]{figures/edge_affinity_schematic.png}
+\caption{Edge-affinity formulation. Exterior points are converted into a local graph; the model predicts same-fragment probability for graph edges; thresholded edges become connected components; components are converted into PSD/P80 proxies.}
+\label{fig:edgeaffinity}
+\end{figure}
+
+\section{Training Protocol}
+Point features include normalized coordinates, normals, and curvature. Edge features encode local geometric differences and surface continuity cues. During training, edges are sampled in balanced positive/negative batches because same-fragment and different-fragment edges are naturally imbalanced in a local graph. Training is performed scene by scene to avoid leakage between neighbouring points from the same pile across train and validation splits.
+
+The latest run trained the EdgeConv model for 24 epochs. The maximum number of sampled training edges per scene was 22,000, the maximum number of validation edges per scene was 36,000, and validation metrics were evaluated on 12 validation scenes per epoch for efficiency. Photogrammetry-realism augmentation was retained during training with strength 0.75. This augmentation perturbs point coordinates, normals, curvature, and edge geometry while preserving labels, approximating common reconstruction imperfections without changing the held-out synthetic ground truth.
+
+At inference, edge probabilities are thresholded and connected components become predicted visible-surface clusters. Four variants are evaluated: raw connected components, affinity-based absorption of unlabelled points, height-marker splitting of oversized clusters, and the combined absorb-plus-post-split variant. Threshold selection is performed only on the validation split. Test scenes are held out until the selected variant and threshold are frozen.
+
+\section{PSD Proxy Evaluation}
+Predicted components are converted into visible-surface PSD proxies. For each predicted component, a surface-cluster diameter proxy is estimated from the spatial span of its points. Proxy volumes are then accumulated into a volume-weighted passing curve, from which P80 is interpolated. This is intentionally called a proxy because exterior points are not closed fragments and do not observe buried volume.
+
+The evaluation reports both edge-learning and downstream PSD behaviour. Average precision and ROC-AUC measure how well the model ranks same-fragment edges. P80 error measures whether the resulting connected components preserve enough size information for a volume-weighted surface proxy. Noise fraction, normalized mutual information (NMI), and adjusted Rand index (ARI) diagnose whether predicted components resemble fragment instances. These metrics can disagree: a threshold can improve P80 while still producing weak instance segmentation, or improve cluster purity while fragmenting large rocks and hurting P80.
+
+\section{Results}
+The EdgeConv model learned edge affinity clearly. Training loss decreased from 0.5722 at epoch 1 to 0.3479 at epoch 24. Validation average precision increased from 0.8569 to 0.9313, and validation ROC-AUC reached 0.9179.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\linewidth]{figures/02_edgeconv_training_curve.png}
+\caption{Training loss and validation average precision for the 24-epoch EdgeConv edge-affinity run.}
+\label{fig:training}
+\end{figure}
+
+The downstream connected-component calibration remained difficult. The validation sweep selected the EdgeConv post-split variant at threshold 0.997. On the 20 held-out test scenes, this setting produced a mean absolute P80 error of 19.04\%, a median absolute P80 error of 18.36\%, and a mean noise fraction of 0.603. Raw EdgeConv components gave 20.82\% mean absolute P80 error. Absorption reduced the noise fraction to approximately 0.506 but worsened P80 error in this run.
+
+\begin{table}[t]
+\centering
+\caption{Held-out test summary for the 20 test scenes.}
+\label{tab:test-summary}
+\begin{tabular}{lrrrr}
+\toprule
+Variant & Threshold & Mean abs. P80 error (\%) & Median abs. P80 error (\%) & Noise fraction \\
+\midrule
+EdgeConv post split & 0.997 & 19.04 & 18.36 & 0.603 \\
+EdgeConv raw & 0.997 & 20.82 & 19.42 & 0.603 \\
+EdgeConv absorb + post split & 0.997 & 21.84 & 21.40 & 0.506 \\
+EdgeConv absorb & 0.997 & 23.45 & 21.40 & 0.506 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.70\linewidth]{figures/03_edgeconv_test_p80_error_histogram.png}
+\caption{Held-out test distribution of absolute P80 error for the validation-selected EdgeConv post-split setting.}
+\label{fig:p80hist}
+\end{figure}
+
+\section{Discussion}
+The result should be read carefully. The model is learning useful edge affinity, but the P80 pipeline is still limited by the conversion from probabilities to connected components. The selected threshold of 0.997 is a symptom of this calibration problem. At lower thresholds, components merge across nearby fragments and inflate coarse clusters. At very high thresholds, many points are disconnected or assigned to small noisy components. The best validation P80 setting sits in this uncomfortable trade-off.
+
+This is why the benchmark is useful. It separates failures that are easy to confuse. Data generation is not the only bottleneck: the no-boundary 150-fragment scenes are stable and reproducible. Edge learning is not the only bottleneck either: validation AP is high. The remaining problem is graph partitioning and post-processing. A future model should likely replace the single hard threshold with a learned graph partitioner, adaptive local thresholds, merge rules constrained by morphology, or a PSD-aware calibration objective that penalizes excessive noise.
+
+The comparison with other model families motivates the chosen direction. Geometry-only clustering is simple and interpretable but brittle when density, normals, and fragment contact geometry vary. MLP edge affinity uses the same edge features but lacks graph-context encoding. PointNet-style global descriptors are not naturally aligned with local boundary decisions. EdgeConv is therefore a sensible middle ground: it is local, graph-based, transferable across arbitrary fragment IDs, and compact enough for repeated synthetic experiments. The current results show that this choice improves the learning side of the problem but does not yet solve the post-processing side.
+
+\section{Limitations and Field Validation}
+This study reports a synthetic exterior-surface benchmark. It does not report field P80 accuracy. Real muckpile deployment requires independent references such as sieve or belt sampling, calibrated image-analysis outputs, carefully scaled manual annotation, or expert delineation on high-resolution orthomosaics. A field study should freeze the synthetic-trained model and threshold-selection rule before evaluating real scans.
+
+The synthetic piles also remain simplified. The production preset was selected because it is stable and practical for 100 scenes, not because it fully reproduces blast mechanics. More realistic DEM/FDEM or Chrono-based generation may improve morphology, but only if contact stability, compute cost, and exterior sampling are controlled. The present benchmark is therefore a pre-field testbed: it is useful for developing and comparing algorithms before expensive field validation.
+
+\section{Reproducibility}
+The accompanying repository includes source code, manuscript source, figure assets, scene index, training history, validation threshold summaries, and held-out test summaries. The full `.npz` scene files and trained checkpoint are treated as generated artifacts because they can be regenerated from the provided scripts. The intended production command regenerates 100 no-boundary exterior scenes with 150 requested fragments, 800 DEM-relaxation steps, 30,000 requested surface samples per scene, and four CPU workers.
+
+\section{Conclusion}
+The manuscript reframes the project as a complete synthetic exterior rockpile benchmark rather than a short model report. Synthetic fragments are generated with known identity and volume, arranged into labelled rockpiles, converted to exterior-only point clouds, and used to train an EdgeConv edge-affinity model. DGCNN/EdgeConv is used because it learns local graph relationships that are more appropriate for arbitrary fragment IDs than direct point classification or purely geometric clustering. The latest 100-scene run confirms that edge affinity is learned well, with validation AP of 0.9313, but the held-out P80 result remains limited by high-threshold connected-component calibration. The next technical step is therefore not simply more data; it is better graph partitioning and post-processing for PSD-relevant surface clusters.
+
+\section*{Acknowledgments}
+During preparation of this manuscript, the author used OpenAI Codex for coding, formatting, and drafting assistance. The author reviewed and edited the output and takes responsibility for the manuscript.
+
+\section*{Data and Code Availability}
+Code, manuscript source, figures, and summary tables are prepared for release at \url{https://github.com/Linkgyu/rockpile-edgeconv-arxiv}. The full generated scenes can be regenerated using the included scripts.
+
+\begin{thebibliography}{30}
+\bibitem{laurence2011} Laurence, D. Establishing a sustainable mining operation: an overview. \emph{Journal of Cleaner Production} 2011, 19, 278--284.
+\bibitem{cunningham1983} Cunningham, C. V. B. The Kuz-Ram model for prediction of fragmentation from blasting. In \emph{Proceedings of the 1st International Symposium on Rock Fragmentation by Blasting}, Lulea, Sweden, 1983.
+\bibitem{ouchterlony2005} Ouchterlony, F. The Swebrec function: linking fragmentation by blasting and crushing. \emph{Mining Technology} 2005, 114, 29--44.
+\bibitem{palangio1995} Palangio, T. C.; Franklin, J. A.; Maerz, N. H. WIPFRAG: a breakthrough in fragmentation measurement. In \emph{Proceedings of the 21st Annual Conference on Explosives and Blasting Technique}, 1995.
+\bibitem{siddiqui2009} Siddiqui, F. I.; Shah, S. M. A.; Behan, M. Y. Measurement of size distribution of blasted rock using digital image processing. \emph{Journal of King Abdulaziz University: Engineering Sciences} 2009, 20, 81--93.
+\bibitem{westoby2012} Westoby, M. J.; Brasington, J.; Glasser, N. F.; Hambrey, M. J.; Reynolds, J. M. Structure-from-Motion photogrammetry: a low-cost, effective tool for geoscience applications. \emph{Geomorphology} 2012, 179, 300--314.
+\bibitem{eltner2016} Eltner, A.; Kaiser, A.; Castillo, C.; Rock, G.; Neugirg, F.; Abellan, A. Image-based surface reconstruction in geomorphometry: merits, limits and developments. \emph{Earth Surface Dynamics} 2016, 4, 359--389.
+\bibitem{anderson2019} Anderson, K.; Westoby, M. J.; James, M. R. Low-budget topography: Structure from Motion photogrammetry in geoscience applications. \emph{Progress in Physical Geography} 2019, 43, 184--205.
+\bibitem{engin2020} Engin, I. C.; Maerz, N. H.; Boyko, K. J.; Reals, R. Practical measurement of size distribution of blasted rocks using LiDAR scan data. \emph{Rock Mechanics and Rock Engineering} 2020, 53, 4653--4671.
+\bibitem{onederra2015} Onederra, I.; Thurley, M. J.; Catalan, A. Measuring blast fragmentation at Esperanza mine using high-resolution 3D laser scanning. \emph{Mining Technology} 2015, 124, 34--36.
+\bibitem{wang2019} Wang, Y.; Sun, Y.; Liu, Z.; Sarma, S. E.; Bronstein, M. M.; Solomon, J. M. Dynamic Graph CNN for learning on point clouds. \emph{ACM Transactions on Graphics} 2019, 38, 146.
+\bibitem{qi2017pointnet} Qi, C. R.; Su, H.; Mo, K.; Guibas, L. J. PointNet: Deep learning on point sets for 3D classification and segmentation. In \emph{Proceedings of CVPR}, 2017.
+\bibitem{qi2017pointnetpp} Qi, C. R.; Yi, L.; Su, H.; Guibas, L. J. PointNet++: Deep hierarchical feature learning on point sets in a metric space. In \emph{Advances in Neural Information Processing Systems}, 2017.
+\bibitem{ester1996} Ester, M.; Kriegel, H.-P.; Sander, J.; Xu, X. A density-based algorithm for discovering clusters in large spatial databases with noise. In \emph{Proceedings of KDD}, 1996.
+\bibitem{hubert1985} Hubert, L.; Arabie, P. Comparing partitions. \emph{Journal of Classification} 1985, 2, 193--218.
+\bibitem{vinh2010} Vinh, N. X.; Epps, J.; Bailey, J. Information theoretic measures for clusterings comparison: variants, properties, normalisation and correction for chance. \emph{Journal of Machine Learning Research} 2010, 11, 2837--2854.
+\bibitem{pedregosa2011} Pedregosa, F. et al. Scikit-learn: Machine learning in Python. \emph{Journal of Machine Learning Research} 2011, 12, 2825--2830.
+\bibitem{paszke2019} Paszke, A. et al. PyTorch: An imperative style, high-performance deep learning library. In \emph{Advances in Neural Information Processing Systems}, 2019.
+\end{thebibliography}
+
+\end{document}
