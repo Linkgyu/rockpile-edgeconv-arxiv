@@ -54,24 +54,52 @@ SECTIONS = [
         ],
     ),
     (
-        "Synthetic Fragment Generation",
+        "Materials and Methods",
         [
-            "The benchmark begins with a synthetic fragment library. Each fragment is a rock-like mesh with a known identity, volume, and equivalent spherical diameter. Fragment meshes are generated from randomly sampled surface directions, anisotropic axis scaling, and radial jitter, then stored as convex rock-like hulls.",
-            "Because every mesh retains identity and volume, labels can be transferred through placement, point sampling, exterior filtering, graph construction, and evaluation. This gives the benchmark a control that field data usually lacks: a known fragment-volume reference exists before any point-cloud clustering is performed.",
+            "The methods are organised around the actual data path used in the benchmark: fragment meshes are generated first, fragments are arranged into labelled rockpile scenes, full mesh surfaces are sampled, hidden/contact samples are removed to create an exterior-only scan target, and only then are graph edges built for EdgeConv training.",
         ],
     ),
     (
-        "Rockpile Construction",
+        "Synthetic Fragment Mesh Library",
         [
-            "Fragments from the library are placed into multiple synthetic rockpile scenes. Earlier versions used a cone/drop-and-settle heuristic inspired by the Synthetic_Rockpile notebooks. During this project, physics-informed alternatives were also explored, including DEM-style relaxation, Project Chrono sequential dropping, convex-hull contact, and clump contact.",
-            "The final reported dataset uses a no-boundary envelope-relax/axis-clump production preset. It is not presented as a high-fidelity blast-muckpile simulator. It is used because it produces stable, labelled, pile-like exterior point clouds at practical cost for repeated machine-learning experiments. The latest dataset contains 100 scenes, each with 150 requested fragments, split into 60 training scenes, 20 validation scenes, and 20 held-out test scenes.",
+            "The benchmark begins before pile construction. A library of rock-like triangular fragment meshes is generated with the Synthetic_Rockpile workflow. Each mesh has a persistent fragment identifier, volume, equivalent spherical diameter, and mesh path. This is important because the learning labels do not originate from a manual drawing on a point cloud; they originate from the synthetic fragment identity before the pile exists.",
+            "For each scene, 150 fragments are sampled without replacement from the fragment catalogue. The reference PSD for a scene is computed from known fragment volumes using equivalent spherical diameter. This reference is independent of the model prediction, so the downstream P80 comparison tests the complete exterior-clustering pipeline rather than rewarding a method for reproducing its own clusters.",
         ],
     ),
     (
-        "Exterior-Only Point-Cloud Target",
+        "Rockpile Construction Backend",
         [
-            "A full synthetic rockpile includes hidden surfaces, buried contacts, and interior points that real photogrammetry or lidar would not observe. The benchmark therefore converts labelled full geometry into an exterior-only scan proxy. A viewpoint-based nearest-surface operation removes many hidden samples. A second plan-view height-envelope filter retains points close to the local upper surface.",
-            "This exterior conversion changes the learning target. The model is not asked to recover all mesh surfaces or all buried fragment contacts. It is asked to group the visible upper-surface points that a practical scan might contain.",
+            "Several pile-generation options were tested during development, including the original Synthetic_Rockpile cone/drop heuristic, sequential-drop soft-sphere DEM, Project Chrono convex-hull contact, and clump contact. The fully dynamic sequential-drop variants were visually attractive but were too expensive or numerically sensitive for producing 100 repeatable no-boundary scenes.",
+            "The reported dataset therefore uses the physics-informed realistic-rockpile generator in a no-boundary envelope-relax configuration with axis-clump contact. The method is best understood as a soft-sphere DEM surrogate for creating stable labelled piles, not as a calibrated FDEM blast simulation. Initial fragment centres are sampled inside a compact pile envelope. Gravity, damping, ground contact, and fragment-fragment contact are then integrated for a fixed number of steps. The visual geometry remains the original fragment mesh; the contact representation is an axis-clump approximation used for stable, faster collision response.",
+        ],
+    ),
+    (
+        "Material and Contact Interpretation",
+        [
+            "The density value, 2650 kg/m3, corresponds to a generic hard-rock density and is used to convert known mesh volumes into masses for the DEM surrogate. The contact parameters are numerical DEM parameters rather than laboratory-calibrated elastic moduli.",
+            "This distinction matters for interpretation. A high-fidelity field simulator would require calibrated rock stiffness, fracture, shape distribution, bench geometry, blast throw, and post-blast interaction. The present generator is narrower: it provides labelled, repeatable exterior point clouds for training and testing segmentation-to-PSD algorithms.",
+        ],
+    ),
+    (
+        "Mesh Placement and Exterior Point-Cloud Sampling",
+        [
+            "After DEM relaxation, the original fragment meshes are placed at their final centres and orientations. Surface points are sampled from the placed meshes in proportion to fragment volume, with a minimum point allocation for small fragments. The full sampled pile still contains hidden surfaces: underside points, buried contact surfaces, and internal surfaces that would not be visible to a camera or lidar scanner.",
+            "The model is not trained on the full mesh surface. It is trained on the exterior-only point-cloud target after visibility and height-envelope filtering. This distinction is central: the synthetic pile contains all labels, but the benchmark deliberately withholds non-visible geometry to avoid an unrealistically easy learning target.",
+        ],
+    ),
+    (
+        "Exterior-Only Scan Construction",
+        [
+            "The exterior scan construction is stricter than simple random surface sampling. Five default viewpoints are placed around the pile: four side viewpoints and one overhead viewpoint. For each viewpoint, points are binned in azimuth-elevation angle, and only the nearest point in each angular bin is retained. The angular bin width is 0.24 degrees in the reported dataset.",
+            "The union of viewpoint-visible points is then filtered by a plan-view height envelope. Points are binned in the x-y plane using a 0.035 m grid. Within each grid cell, the local maximum elevation is estimated, and only points within 0.030 m of that upper envelope are retained. This second pass removes contact or interior samples that can otherwise survive through small gaps in point-sampled synthetic geometry.",
+            "After exterior filtering, a small coordinate perturbation with standard deviation 0.0015 m is added, and a random density keep fraction between 0.78 and 0.92 is applied to mimic non-uniform point-cloud density. Normals and curvature are estimated from 30 nearest neighbours. A 12-nearest-neighbour graph is built on the exterior point coordinates, and each graph edge is labelled by same-fragment or different-fragment endpoint identity.",
+        ],
+    ),
+    (
+        "Dataset Summary",
+        [
+            "The latest production index contains 100 scenes with scene-level splitting: 60 training scenes, 20 validation scenes, and 20 held-out test scenes. The mean visible-fragment count after exterior filtering is 146.68, because a few requested fragments can be fully hidden or removed by the exterior filter.",
+            "The mean exterior point count is 5735.63, the mean base radius is 0.898 m, and the mean pile height is 1.084 m. Scene-level splitting is used to avoid leakage: no points or graph edges from a training pile appear in validation or test scenes.",
         ],
     ),
     (
@@ -203,9 +231,80 @@ def add_results_table(doc: Document) -> None:
         cells = table.add_row().cells
         for cell, text in zip(cells, row):
             cell.text = text
-    cap = doc.add_paragraph("Table 1. Held-out test summary for the 20 test scenes.")
+    cap = doc.add_paragraph("Table 3. Held-out test summary for the 20 test scenes.")
     cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
     cap.runs[0].italic = True
+
+
+def add_key_value_table(doc: Document, caption: str, rows: list[tuple[str, str]]) -> None:
+    table = doc.add_table(rows=1, cols=2)
+    table.style = "Table Grid"
+    table.columns[0].width = Inches(2.2)
+    table.columns[1].width = Inches(4.0)
+    for cell, text in zip(table.rows[0].cells, ["Item", "Value"]):
+        cell.text = text
+        for par in cell.paragraphs:
+            for run in par.runs:
+                run.bold = True
+    for key, value in rows:
+        cells = table.add_row().cells
+        cells[0].text = key
+        cells[1].text = value
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                paragraph.paragraph_format.space_before = Pt(0)
+                paragraph.paragraph_format.space_after = Pt(0)
+                paragraph.paragraph_format.line_spacing = 1.0
+                for run in paragraph.runs:
+                    run.font.size = Pt(8)
+    cap = doc.add_paragraph(caption)
+    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    cap.runs[0].italic = True
+    cap.paragraph_format.space_after = Pt(10)
+
+
+def add_pile_settings_table(doc: Document) -> None:
+    add_key_value_table(
+        doc,
+        "Table 1. Production rockpile generation settings used for the 100-scene dataset.",
+        [
+            ("Placement backend", "physics-informed soft-sphere DEM surrogate"),
+            ("Placement mode", "envelope_relax"),
+            ("Contact model", "axis_clump"),
+            ("Requested fragments per scene", "150"),
+            ("Generated scenes", "100"),
+            ("Scene split", "60 train / 20 validation / 20 test"),
+            ("DEM steps and time step", "800 steps, dt = 5.0e-4 s"),
+            ("Gravity", "9.81 m s-2"),
+            ("Density", "2650 kg m-3"),
+            ("Normal stiffness", "3.5e4 N m-1"),
+            ("Normal / tangential damping", "115 / 65 N s m-1"),
+            ("Fragment / ground friction coefficient", "0.88 / 1.05"),
+            ("Collision radius scale", "0.55"),
+            ("Clump radius scale / spread scale", "0.30 / 0.48"),
+            ("Linear / angular damping", "0.028 / 0.018"),
+            ("Temporary confinement wall", "none in production no-boundary run"),
+        ],
+    )
+
+
+def add_exterior_settings_table(doc: Document) -> None:
+    add_key_value_table(
+        doc,
+        "Table 2. Exterior scan and graph construction settings.",
+        [
+            ("Exterior viewpoint set", "four side viewpoints plus one overhead viewpoint"),
+            ("Angular nearest-surface bin", "0.24 degrees"),
+            ("Height-envelope grid", "0.035 m in plan view"),
+            ("Height-envelope tolerance", "0.030 m below local maximum elevation"),
+            ("Coordinate noise after filtering", "0.0015 m standard deviation"),
+            ("Random density keep fraction", "uniform between 0.78 and 0.92"),
+            ("Normal/curvature neighbourhood", "30 nearest neighbours"),
+            ("Learning graph", "12-nearest-neighbour graph"),
+            ("Edge label", "same-fragment vs different-fragment endpoint identity"),
+        ],
+    )
 
 
 def build() -> None:
@@ -224,16 +323,21 @@ def build() -> None:
             doc.add_paragraph(text)
         if title == "Introduction":
             add_figure(doc, "workflow_schematic.png", "Figure 1. Benchmark workflow from synthetic fragments to exterior-only learning and field-validation roadmap.", 5.9)
-        elif title == "Rockpile Construction":
+        elif title == "Rockpile Construction Backend":
             add_figure(doc, "synthetic_generation_schematic.png", "Figure 2. Synthetic fragment, rockpile, and exterior-scan construction sequence.", 5.9)
-        elif title == "Exterior-Only Point-Cloud Target":
-            add_figure(doc, "dem_noboundary_relax150_scene000_preview.png", "Figure 3. Representative exterior point cloud from the no-boundary 150-fragment dataset.", 4.8)
+            add_pile_settings_table(doc)
+        elif title == "Mesh Placement and Exterior Point-Cloud Sampling":
+            add_figure(doc, "rockpile_mesh_exterior_scene000.png", "Figure 3. Scene 000 mesh-level pile visualisation and exterior-only labelled point-cloud target.", 6.1)
+        elif title == "Exterior-Only Scan Construction":
+            add_exterior_settings_table(doc)
+        elif title == "Dataset Summary":
+            add_figure(doc, "dem_noboundary_relax150_scene000_preview.png", "Figure 4. Representative exterior point cloud from the no-boundary 150-fragment dataset.", 4.8)
         elif title == "Why Edge Affinity and Why DGCNN/EdgeConv?":
-            add_figure(doc, "edge_affinity_schematic.png", "Figure 4. Edge-affinity formulation from local graph edges to connected components and PSD proxy.", 5.9)
+            add_figure(doc, "edge_affinity_schematic.png", "Figure 5. Edge-affinity formulation from local graph edges to connected components and PSD proxy.", 5.9)
         elif title == "Results":
-            add_figure(doc, "02_edgeconv_training_curve.png", "Figure 5. Training loss and validation average precision for the 24-epoch EdgeConv run.", 5.4)
+            add_figure(doc, "02_edgeconv_training_curve.png", "Figure 6. Training loss and validation average precision for the 24-epoch EdgeConv run.", 5.4)
             add_results_table(doc)
-            add_figure(doc, "03_edgeconv_test_p80_error_histogram.png", "Figure 6. Held-out test distribution of absolute P80 error.", 4.8)
+            add_figure(doc, "03_edgeconv_test_p80_error_histogram.png", "Figure 7. Held-out test distribution of absolute P80 error.", 4.8)
 
     doc.add_heading("Acknowledgments", level=1)
     doc.add_paragraph("During preparation of this manuscript, the author used OpenAI Codex for coding, formatting, and drafting assistance. The author reviewed and edited the output and takes responsibility for the manuscript.")
