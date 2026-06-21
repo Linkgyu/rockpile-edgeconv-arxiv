@@ -22,3 +22,6 @@ manuscript/*.out
 manuscript/*.toc
 manuscript/*.synctex.gz
 
+# Local manuscript QA artifacts.
+manuscript/rendered/
+scratch_*

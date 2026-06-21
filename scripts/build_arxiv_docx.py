@@ -11,104 +11,119 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "manuscript" / "arxiv_manuscript.docx"
 FIG = ROOT / "manuscript" / "figures"
 
-
-TITLE = "A Synthetic Exterior Point-Cloud Benchmark for Rockpile Fragmentation and P80 Estimation with EdgeConv Edge Affinity"
+TITLE = "Synthetic Exterior Point-Cloud Benchmarking for Rockpile Fragmentation: Fragment Generation, Rockpile Construction, Exterior-Only Learning, and EdgeConv P80 Estimation"
 AUTHOR = "Namgyu (Noah) Ha"
 AFFILIATION = "Department of Energy and Resources Engineering, National Korea Maritime and Ocean University, Busan, Republic of Korea"
 
-
 ABSTRACT = (
-    "Operational fragmentation monitoring increasingly uses photogrammetric or lidar point clouds, but labelled real "
-    "rockpile scans with point-level fragment identity and independent particle-size-distribution (PSD) ground truth "
-    "remain scarce. This study presents a reproducible synthetic exterior point-cloud benchmark for rockpile surface "
-    "clustering and P80 estimation. One hundred no-boundary synthetic rockpile scenes were generated with 150 requested "
-    "fragments per scene using a physics-informed exterior-surface construction workflow, then split at the scene level "
-    "into 60 training, 20 validation, and 20 held-out test scenes. A DGCNN-style EdgeConv edge-affinity model was trained "
-    "to predict whether neighbouring exterior points belong to the same fragment. Connected components of high-affinity "
-    "edges were converted into surface-cluster PSD proxies, with the edge threshold selected on validation scenes by P80 "
-    "error and noise-aware post-processing. The model learned edge affinity reliably, reaching validation average "
-    "precision of 0.9313 at epoch 24. However, downstream PSD estimation remained sensitive to threshold calibration: "
-    "validation selected the post-split EdgeConv variant at threshold 0.997, and the held-out test mean absolute P80 "
-    "error was 19.04% with a mean noise fraction of 0.603. These results indicate that EdgeConv provides a useful "
-    "controlled benchmark for surface-cluster affinity learning, while robust post-processing and field calibration "
-    "remain the main barriers to operational P80 estimation."
+    "Reliable rock-fragmentation monitoring is useful for blast assessment and mine-to-mill control, but real rockpile "
+    "point clouds rarely provide point-level fragment labels or independent particle-size-distribution references. This "
+    "paper presents a synthetic exterior point-cloud benchmark designed as a pre-field testbed for visible-surface PSD "
+    "proxy estimation. The workflow starts from a library of synthetic rock-like fragment meshes with known volume and "
+    "identity. These fragments are placed into labelled rockpile scenes, converted to exterior-only point-cloud scans, "
+    "and used to train a graph edge-affinity model. The learning target is not a scene-specific fragment-ID class; "
+    "instead, a DGCNN/EdgeConv model predicts whether neighbouring exterior points belong to the same fragment. Connected "
+    "components of high-affinity edges become visible-surface clusters, and those clusters are converted into PSD and P80 "
+    "proxy estimates. This formulation was chosen because fragment IDs are arbitrary across scenes, because local boundary "
+    "decisions depend on neighbourhood geometry, and because hand-designed clustering rules such as DBSCAN or "
+    "normal/curvature region growing struggle with irregular point density, touching particles, and over-merged surface "
+    "patches. The latest benchmark run uses 100 no-boundary synthetic exterior scenes with 150 requested fragments per "
+    "scene and a 60/20/20 train/validation/test split. The EdgeConv model reached validation average precision of 0.9313 "
+    "after 24 epochs. However, validation selected a high edge threshold of 0.997, and the held-out test mean absolute P80 "
+    "error was 19.04% with a mean noise fraction of 0.603. The result shows that EdgeConv learns useful same-fragment "
+    "affinity, but it also makes clear that threshold calibration and connected-component post-processing remain the main "
+    "obstacle before field deployment."
 )
-
 
 SECTIONS = [
     (
         "Introduction",
         [
-            "Post-blast fragmentation affects loading, hauling, crushing, and comminution performance. Classical blast-fragmentation models such as Kuz-Ram and Swebrec remain useful because particle size distribution links blasting outcomes with mine-to-mill performance.",
-            "Image-based fragmentation systems are widely used, but two-dimensional images must infer scale, occlusion, and particle overlap from a projected surface. Three-dimensional photogrammetry and lidar workflows reduce some of these limitations, but field point clouds rarely include reliable point-level fragment labels.",
-            "This paper reports a compact benchmark built around a controlled synthetic stage. The goal is not to claim field-ready fragmentation measurement. Instead, the benchmark isolates a narrower question: given labelled exterior synthetic rockpile scans, how well can a DGCNN/EdgeConv edge-affinity model learn surface grouping signals, and how does that learning translate into P80 estimates after connected-component post-processing?",
+            "Post-blast fragmentation affects loading, hauling, crushing, and comminution. Excessive fines or oversize material can lower equipment productivity and increase energy demand, so fragmentation monitoring is relevant to mine-to-mill decision support.",
+            "Three-dimensional photogrammetry and lidar point clouds provide richer surface geometry than single images. They preserve relative position, local slope, and surface continuity. Nevertheless, a rockpile point cloud still observes only the exterior surface. Buried contacts and the back sides of fragments are unavailable. Consequently, a PSD estimated from a surface point cloud should be interpreted as a visible-surface proxy unless it is calibrated against independent field measurements.",
+            "The benchmark reported here asks a narrow and reproducible question: from labelled synthetic rock fragments arranged into rockpiles, how much useful P80 proxy information can be recovered when the learning model sees only exterior points?",
         ],
     ),
     (
-        "Synthetic Exterior Rockpile Dataset",
+        "Synthetic Fragment Generation",
         [
-            "The reported dataset contains 100 synthetic rockpile scenes. Each scene requested 150 fragments and retained only the exterior point-cloud surface used for learning. The final scene index contains an average of 146.68 visible fragments, 5735.63 exterior points, a mean base radius of 0.898 m, and a mean pile height of 1.084 m. Scenes were split by scene identifier, not by point, into 60 training scenes, 20 validation scenes, and 20 held-out test scenes.",
-            "The final production dataset used a no-boundary envelope-relax configuration rather than a full sequential-drop Chrono simulation. Full dynamic sequential-drop variants were tested with convex-hull and clump contact, but they either required impractical computation for 100 scenes or produced numerical outliers when boundary walls were removed.",
+            "The benchmark begins with a synthetic fragment library. Each fragment is a rock-like mesh with a known identity, volume, and equivalent spherical diameter. Fragment meshes are generated from randomly sampled surface directions, anisotropic axis scaling, and radial jitter, then stored as convex rock-like hulls.",
+            "Because every mesh retains identity and volume, labels can be transferred through placement, point sampling, exterior filtering, graph construction, and evaluation. This gives the benchmark a control that field data usually lacks: a known fragment-volume reference exists before any point-cloud clustering is performed.",
         ],
     ),
     (
-        "Edge-Affinity Model",
+        "Rockpile Construction",
         [
-            "Fragment identity is scene-specific, so the learning problem is formulated as edge affinity. For each local graph edge between neighbouring exterior points, the model predicts whether the two endpoints belong to the same ground-truth fragment.",
-            "The model follows the Dynamic Graph CNN/EdgeConv principle of learning local point-cloud features from graph neighbourhoods. Point features include normalized coordinates, normals, and curvature; edge attributes include geometric differences and local surface cues. During training, a balanced subset of positive and negative edges is sampled from each scene. Photogrammetry-realism augmentation perturbs point positions, normals, curvature, and edge geometry while preserving graph labels.",
+            "Fragments from the library are placed into multiple synthetic rockpile scenes. Earlier versions used a cone/drop-and-settle heuristic inspired by the Synthetic_Rockpile notebooks. During this project, physics-informed alternatives were also explored, including DEM-style relaxation, Project Chrono sequential dropping, convex-hull contact, and clump contact.",
+            "The final reported dataset uses a no-boundary envelope-relax/axis-clump production preset. It is not presented as a high-fidelity blast-muckpile simulator. It is used because it produces stable, labelled, pile-like exterior point clouds at practical cost for repeated machine-learning experiments. The latest dataset contains 100 scenes, each with 150 requested fragments, split into 60 training scenes, 20 validation scenes, and 20 held-out test scenes.",
         ],
     ),
     (
-        "PSD Proxy and Post-Processing",
+        "Exterior-Only Point-Cloud Target",
         [
-            "At inference time, predicted edge probabilities are thresholded. Retained edges define connected components, and each component is interpreted as a visible surface cluster. The cluster is not assumed to be a clean full fragment instance. Instead, it is converted into a PSD proxy using a surface-cluster diameter estimate and an equivalent proxy volume.",
-            "Four prediction variants are evaluated: raw EdgeConv components, absorbed components where unlabelled points are reassigned by edge affinity, height-marker post-splitting of oversized clusters, and the combined absorb-plus-post-split variant. Thresholds are swept on the 20 validation scenes.",
+            "A full synthetic rockpile includes hidden surfaces, buried contacts, and interior points that real photogrammetry or lidar would not observe. The benchmark therefore converts labelled full geometry into an exterior-only scan proxy. A viewpoint-based nearest-surface operation removes many hidden samples. A second plan-view height-envelope filter retains points close to the local upper surface.",
+            "This exterior conversion changes the learning target. The model is not asked to recover all mesh surfaces or all buried fragment contacts. It is asked to group the visible upper-surface points that a practical scan might contain.",
         ],
     ),
     (
-        "Training and Validation Results",
+        "Why Edge Affinity and Why DGCNN/EdgeConv?",
         [
-            "The EdgeConv model was trained for 24 epochs with 60 training scenes. Validation metrics were computed on 12 validation scenes per epoch for efficiency. Training loss decreased from 0.5722 to 0.3479, while validation average precision increased from 0.8569 to 0.9313. Validation ROC-AUC reached 0.9179 at epoch 24.",
-            "Validation threshold selection showed the main failure mode. Lower thresholds improve component connectivity but merge neighbouring fragments; higher thresholds reduce merging but split many points into small or unlabelled components. The selected operating point was the post-split EdgeConv variant at threshold 0.997.",
+            "Direct point classification into fragment identifiers is poorly posed across scenes. Fragment 17 in one pile has no semantic relation to fragment 17 in another pile. A transferable model should therefore learn a relation, not a fixed label vocabulary. The benchmark uses edge affinity: for each edge in a local neighbourhood graph, the model predicts whether the two endpoints belong to the same underlying fragment.",
+            "DGCNN/EdgeConv was selected because it learns local geometric relationships on point-cloud graphs. Compared with a global PointNet-style descriptor, EdgeConv better preserves local boundary information. Compared with PointNet++, the implementation is compact and directly suited to edge-pair supervision. Compared with an MLP edge classifier, EdgeConv embeds each point using graph neighbourhood context before scoring an edge. Compared with DBSCAN or normal/curvature region growing, it can learn how multiple cues trade off rather than relying on a fixed radius, angle, or smoothness threshold.",
         ],
     ),
     (
-        "Held-Out Test Results",
+        "Training Protocol",
         [
-            "The selected validation setting was frozen and evaluated on the 20 held-out test scenes. The selected post-split EdgeConv variant achieved a mean absolute P80 error of 19.04% and a median absolute P80 error of 18.36%. The raw EdgeConv variant gave 20.82% mean absolute P80 error. Absorption reduced noise fraction from about 0.60 to about 0.51 but worsened P80 error in this run.",
+            "Point features include normalized coordinates, normals, and curvature. Edge features encode local geometric differences and surface continuity cues. During training, edges are sampled in balanced positive/negative batches because same-fragment and different-fragment edges are naturally imbalanced in a local graph.",
+            "The latest run trained the EdgeConv model for 24 epochs. The maximum number of sampled training edges per scene was 22,000, the maximum number of validation edges per scene was 36,000, and validation metrics were evaluated on 12 validation scenes per epoch for efficiency. Photogrammetry-realism augmentation was retained during training with strength 0.75.",
+        ],
+    ),
+    (
+        "PSD Proxy Evaluation",
+        [
+            "Predicted components are converted into visible-surface PSD proxies. For each predicted component, a surface-cluster diameter proxy is estimated from the spatial span of its points. Proxy volumes are then accumulated into a volume-weighted passing curve, from which P80 is interpolated.",
+            "The evaluation reports both edge-learning and downstream PSD behaviour. Average precision and ROC-AUC measure how well the model ranks same-fragment edges. P80 error measures whether the resulting connected components preserve enough size information for a volume-weighted surface proxy. Noise fraction, NMI, and ARI diagnose whether predicted components resemble fragment instances.",
+        ],
+    ),
+    (
+        "Results",
+        [
+            "The EdgeConv model learned edge affinity clearly. Training loss decreased from 0.5722 at epoch 1 to 0.3479 at epoch 24. Validation average precision increased from 0.8569 to 0.9313, and validation ROC-AUC reached 0.9179.",
+            "The downstream connected-component calibration remained difficult. The validation sweep selected the EdgeConv post-split variant at threshold 0.997. On the 20 held-out test scenes, this setting produced a mean absolute P80 error of 19.04%, a median absolute P80 error of 18.36%, and a mean noise fraction of 0.603.",
         ],
     ),
     (
         "Discussion",
         [
-            "The results are clear but modest. The network learns edge affinity, but downstream PSD estimation is weaker because thresholded connected components are brittle. The validation procedure selected a very high edge threshold, 0.997, and the held-out noise fraction remained approximately 60%.",
-            "The no-boundary 150-fragment dataset is more stable than the attempted sequential-drop Chrono scenes and is practical for 100-scene training. Nevertheless, it is still synthetic and still uses a surface-cluster PSD proxy. Real muckpile deployment requires independent field PSD references and a frozen, pre-specified calibration protocol.",
+            "The result should be read carefully. The model is learning useful edge affinity, but the P80 pipeline is still limited by the conversion from probabilities to connected components. The selected threshold of 0.997 is a symptom of this calibration problem.",
+            "This is why the benchmark is useful. Data generation is not the only bottleneck: the no-boundary 150-fragment scenes are stable and reproducible. Edge learning is not the only bottleneck either: validation AP is high. The remaining problem is graph partitioning and post-processing.",
         ],
     ),
     (
-        "Reproducibility",
+        "Limitations and Field Validation",
         [
-            "The repository accompanying this manuscript includes the scene index, summary CSV files, training script, evaluation script, figures, and manuscript source. The full generated .npz scenes and model checkpoint are treated as regenerated artifacts rather than committed source files.",
-            "The reported run used 100 scenes, a 60/20/20 scene-level split, 24 training epochs, 22,000 maximum training edges per scene, 36,000 maximum validation edges per scene, and photogrammetry-realism augmentation strength 0.75.",
+            "This study reports a synthetic exterior-surface benchmark. It does not report field P80 accuracy. Real muckpile deployment requires independent references such as sieve or belt sampling, calibrated image-analysis outputs, carefully scaled manual annotation, or expert delineation on high-resolution orthomosaics.",
+            "The synthetic piles remain simplified. The production preset was selected because it is stable and practical for 100 scenes, not because it fully reproduces blast mechanics. The present benchmark is therefore a pre-field testbed: it is useful for developing and comparing algorithms before expensive field validation.",
         ],
     ),
     (
         "Conclusion",
         [
-            "This benchmark shows that EdgeConv edge affinity can learn useful local surface relationships in labelled synthetic rockpile exterior scans. The best validation AP reached 0.9313, but the held-out mean absolute P80 error remained 19.04% under a high-threshold post-split connected-component rule. The main research bottleneck is therefore no longer only synthetic data generation or edge-affinity learning; it is robust calibration from edge probabilities to PSD-relevant components.",
+            "Synthetic fragments are generated with known identity and volume, arranged into labelled rockpiles, converted to exterior-only point clouds, and used to train an EdgeConv edge-affinity model. DGCNN/EdgeConv is used because it learns local graph relationships that are more appropriate for arbitrary fragment IDs than direct point classification or purely geometric clustering. The latest 100-scene run confirms that edge affinity is learned well, with validation AP of 0.9313, but the held-out P80 result remains limited by high-threshold connected-component calibration.",
         ],
     ),
 ]
 
-
 REFERENCES = [
     "Cunningham, C. V. B. The Kuz-Ram model for prediction of fragmentation from blasting. 1st International Symposium on Rock Fragmentation by Blasting, 1983.",
     "Ouchterlony, F. The Swebrec function: linking fragmentation by blasting and crushing. Mining Technology, 2005.",
-    "Engin, I. C.; Maerz, N. H.; Boyko, K. J.; Reals, R. Practical measurement of size distribution of blasted rocks using LiDAR scan data. Rock Mechanics and Rock Engineering, 2020.",
-    "Wang, Y.; Sun, Y.; Liu, Z.; Sarma, S. E.; Bronstein, M. M.; Solomon, J. M. Dynamic Graph CNN for learning on point clouds. ACM Transactions on Graphics, 2019.",
-    "Qi, C. R.; Su, H.; Mo, K.; Guibas, L. J. PointNet: Deep learning on point sets for 3D classification and segmentation. CVPR, 2017.",
-    "Qi, C. R.; Yi, L.; Su, H.; Guibas, L. J. PointNet++: Deep hierarchical feature learning on point sets in a metric space. NeurIPS, 2017.",
-    "Ester, M.; Kriegel, H.-P.; Sander, J.; Xu, X. A density-based algorithm for discovering clusters in large spatial databases with noise. KDD, 1996.",
+    "Westoby, M. J. et al. Structure-from-Motion photogrammetry: a low-cost, effective tool for geoscience applications. Geomorphology, 2012.",
+    "Engin, I. C. et al. Practical measurement of size distribution of blasted rocks using LiDAR scan data. Rock Mechanics and Rock Engineering, 2020.",
+    "Wang, Y. et al. Dynamic Graph CNN for learning on point clouds. ACM Transactions on Graphics, 2019.",
+    "Qi, C. R. et al. PointNet: Deep learning on point sets for 3D classification and segmentation. CVPR, 2017.",
+    "Qi, C. R. et al. PointNet++: Deep hierarchical feature learning on point sets in a metric space. NeurIPS, 2017.",
+    "Ester, M. et al. A density-based algorithm for discovering clusters in large spatial databases with noise. KDD, 1996.",
     "Pedregosa, F. et al. Scikit-learn: Machine learning in Python. Journal of Machine Learning Research, 2011.",
     "Paszke, A. et al. PyTorch: An imperative style, high-performance deep learning library. NeurIPS, 2019.",
 ]
@@ -120,17 +135,12 @@ def set_styles(doc: Document) -> None:
     sec.bottom_margin = Inches(1)
     sec.left_margin = Inches(1)
     sec.right_margin = Inches(1)
-
     normal = doc.styles["Normal"]
     normal.font.name = "Calibri"
     normal.font.size = Pt(11)
     normal.paragraph_format.space_after = Pt(8)
     normal.paragraph_format.line_spacing = 1.18
-
-    for name, size, color in [
-        ("Heading 1", 16, RGBColor(46, 116, 181)),
-        ("Heading 2", 13, RGBColor(46, 116, 181)),
-    ]:
+    for name, size, color in [("Heading 1", 16, RGBColor(46, 116, 181)), ("Heading 2", 13, RGBColor(46, 116, 181))]:
         style = doc.styles[name]
         style.font.name = "Calibri"
         style.font.size = Pt(size)
@@ -147,7 +157,7 @@ def add_centered(doc: Document, text: str, size: int, bold: bool = False) -> Non
     r.font.bold = bold
 
 
-def add_figure(doc: Document, filename: str, caption: str, width: float = 5.5) -> None:
+def add_figure(doc: Document, filename: str, caption: str, width: float) -> None:
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run().add_picture(str(FIG / filename), width=Inches(width))
@@ -184,55 +194,37 @@ def add_results_table(doc: Document) -> None:
 def build() -> None:
     doc = Document()
     set_styles(doc)
-    add_centered(doc, TITLE, 17, bold=True)
+    add_centered(doc, TITLE, 16, bold=True)
     add_centered(doc, AUTHOR, 11)
     add_centered(doc, AFFILIATION, 10)
-
     doc.add_heading("Abstract", level=1)
     doc.add_paragraph(ABSTRACT)
-    doc.add_paragraph(
-        "Keywords: rock fragmentation; point cloud; synthetic benchmark; EdgeConv; DGCNN; particle size distribution; P80; photogrammetry; mining"
-    )
+    doc.add_paragraph("Keywords: rock fragmentation; synthetic rockpile; exterior point cloud; visible-surface PSD proxy; EdgeConv; DGCNN; P80")
 
     for title, paragraphs in SECTIONS:
         doc.add_heading(title, level=1)
         for text in paragraphs:
             doc.add_paragraph(text)
-        if title == "Synthetic Exterior Rockpile Dataset":
-            add_figure(
-                doc,
-                "dem_noboundary_relax150_scene000_preview.png",
-                "Figure 1. Representative exterior point cloud from the 150-fragment no-boundary synthetic dataset.",
-                width=5.7,
-            )
-        elif title == "Training and Validation Results":
-            add_figure(
-                doc,
-                "02_edgeconv_training_curve.png",
-                "Figure 2. Training loss and validation average precision for the 24-epoch EdgeConv run.",
-                width=5.5,
-            )
-        elif title == "Held-Out Test Results":
+        if title == "Introduction":
+            add_figure(doc, "workflow_schematic.png", "Figure 1. Benchmark workflow from synthetic fragments to exterior-only learning and field-validation roadmap.", 5.9)
+        elif title == "Rockpile Construction":
+            add_figure(doc, "synthetic_generation_schematic.png", "Figure 2. Synthetic fragment, rockpile, and exterior-scan construction sequence.", 5.9)
+        elif title == "Exterior-Only Point-Cloud Target":
+            add_figure(doc, "dem_noboundary_relax150_scene000_preview.png", "Figure 3. Representative exterior point cloud from the no-boundary 150-fragment dataset.", 4.8)
+        elif title == "Why Edge Affinity and Why DGCNN/EdgeConv?":
+            add_figure(doc, "edge_affinity_schematic.png", "Figure 4. Edge-affinity formulation from local graph edges to connected components and PSD proxy.", 5.9)
+        elif title == "Results":
+            add_figure(doc, "02_edgeconv_training_curve.png", "Figure 5. Training loss and validation average precision for the 24-epoch EdgeConv run.", 5.4)
             add_results_table(doc)
-            add_figure(
-                doc,
-                "03_edgeconv_test_p80_error_histogram.png",
-                "Figure 3. Held-out test distribution of absolute P80 error for the selected EdgeConv post-split setting.",
-                width=5.0,
-            )
+            add_figure(doc, "03_edgeconv_test_p80_error_histogram.png", "Figure 6. Held-out test distribution of absolute P80 error.", 4.8)
 
     doc.add_heading("Acknowledgments", level=1)
-    doc.add_paragraph(
-        "During preparation of this manuscript, the author used OpenAI Codex for drafting, coding, formatting, and reproducibility assistance. The author reviewed and edited the output and takes responsibility for the manuscript."
-    )
+    doc.add_paragraph("During preparation of this manuscript, the author used OpenAI Codex for coding, formatting, and drafting assistance. The author reviewed and edited the output and takes responsibility for the manuscript.")
     doc.add_heading("Data and Code Availability", level=1)
-    doc.add_paragraph(
-        "Code, manuscript source, figures, and summary tables are prepared for release at https://github.com/Linkgyu/rockpile-edgeconv-arxiv. The full generated scenes can be regenerated using the included scripts."
-    )
+    doc.add_paragraph("Code, manuscript source, figures, and summary tables are prepared for release at https://github.com/Linkgyu/rockpile-edgeconv-arxiv. The full generated scenes can be regenerated using the included scripts.")
     doc.add_heading("References", level=1)
     for i, ref in enumerate(REFERENCES, start=1):
         doc.add_paragraph(f"{i}. {ref}")
-
     OUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUT)
     print(OUT)

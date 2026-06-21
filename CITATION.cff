@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this benchmark or code, please cite this repository and the associated arXiv preprint."
-title: "Synthetic Exterior Point-Cloud Benchmark for Rockpile Fragmentation with EdgeConv Edge Affinity"
+title: "Synthetic Exterior Point-Cloud Benchmarking for Rockpile Fragmentation: Fragment Generation, Rockpile Construction, Exterior-Only Learning, and EdgeConv P80 Estimation"
 authors:
   - family-names: Ha
     given-names: Namgyu
@@ -15,4 +15,3 @@ keywords:
   - DGCNN
   - particle size distribution
   - mining
-

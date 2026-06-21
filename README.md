@@ -1,8 +1,13 @@
-# Synthetic Rockpile EdgeConv Benchmark
+# Synthetic Exterior Rockpile EdgeConv Benchmark
 
 This repository contains the arXiv-ready manuscript source, code, figures, and
 summary results for a synthetic exterior point-cloud benchmark for rockpile
 fragmentation and P80 estimation using a DGCNN/EdgeConv edge-affinity model.
+The manuscript narrative follows the full benchmark chain: synthetic fragments
+are generated first with known identity and volume, those fragments are arranged
+into labelled rockpile scenes, only exterior scan-like points are retained for
+learning, and EdgeConv edge affinity is evaluated as a transferable alternative
+to scene-specific fragment-ID classification or purely geometric clustering.
 
 ## What Is Included
 
@@ -59,4 +64,3 @@ dataset, validation selects a high threshold of 0.997, producing a high noise
 fraction on test scenes. This repository should therefore be treated as a
 controlled synthetic benchmark and a reproducible baseline, not as a field-ready
 fragmentation monitoring system.
-
