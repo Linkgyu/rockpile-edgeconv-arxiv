@@ -6,6 +6,8 @@
 \usepackage{hyperref}
 \usepackage{amsmath}
 \usepackage{authblk}
+\usepackage{float}
+\usepackage[section]{placeins}
 
 \title{Synthetic Exterior Point-Cloud Benchmarking for Rockpile Fragmentation: Fragment Generation, Rockpile Construction, Exterior-Only Learning, and EdgeConv P80 Estimation}
 \author[1]{Namgyu (Noah) Ha}
@@ -240,6 +242,7 @@ Absorb + post split & 0.997 & 23.22 & 0.605 & 0.0783 & 0.499 \\
 \small
 \caption{Held-out test summary for the 20 test scenes.}
 \label{tab:test-summary}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrr}
 \toprule
 Variant & Threshold & Mean abs. P80 error (\%) & Median abs. P80 error (\%) & Mean NMI & Mean ARI & Noise fraction \\
@@ -250,6 +253,7 @@ EdgeConv absorb + post split & 0.997 & 21.84 & 21.40 & 0.597 & 0.0705 & 0.506 \\
 EdgeConv absorb & 0.997 & 23.45 & 21.40 & 0.597 & 0.0732 & 0.506 \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
 Other models were then evaluated on the same latest 150-fragment dataset. The MLP affinity model was trained for 24 epochs; DBSCAN, normal/curvature region growing, and the hand-crafted graph threshold do not have epochs, so their hyperparameters were selected on the 20 validation scenes and then frozen on the 20 held-out test scenes. This comparison changes the interpretation of the benchmark: the hand-crafted graph threshold achieved the lowest P80 MAE, but it did so with high noise fraction and weak ARI, so it is better read as a P80-oriented proxy rule than as a fragment segmentation model.
@@ -259,6 +263,7 @@ Other models were then evaluated on the same latest 150-fragment dataset. The ML
 \small
 \caption{Latest 150-fragment held-out test comparison after retraining or recalibrating all baseline methods on the same scene split. For non-learning baselines, ``setting'' is the validation-selected hyperparameter configuration.}
 \label{tab:model-comparison}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{p{0.21\linewidth}p{0.25\linewidth}rrrrr}
 \toprule
 Method & Setting & Mean abs. P80 error (\%) & Median abs. P80 error (\%) & Mean NMI & Mean ARI & Noise fraction \\
@@ -270,6 +275,7 @@ EdgeConv post split & $\tau=0.997$ & 19.04 & 18.36 & 0.492 & 0.0323 & 0.603 \\
 Region growing & $r=0.035,a=0.100,c=0.035,z=0.035$ & 116.01 & 105.13 & 0.751 & 0.3247 & 0.195 \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
 \begin{figure}[t]
@@ -285,6 +291,8 @@ Region growing & $r=0.035,a=0.100,c=0.035,z=0.035$ & 116.01 & 105.13 & 0.751 & 0
 \caption{Held-out test distribution of absolute P80 error for the validation-selected EdgeConv post-split setting.}
 \label{fig:p80hist}
 \end{figure}
+
+\FloatBarrier
 
 \section{Discussion}
 The result should be read carefully because the latest 150-fragment comparison separates PSD proxy accuracy from fragment instance quality. The hand-crafted graph-threshold rule achieved the lowest held-out mean absolute P80 error, 14.37\%, but it also produced a high noise fraction of 0.694 and very low ARI. It is therefore a useful P80-oriented engineering rule, not evidence of clean fragment segmentation. Conversely, region growing produced the strongest NMI and ARI among the non-neural baselines but over-merged visible surfaces so severely that P80 error exceeded 100\%. This confirms that instance-style metrics and PSD/P80 metrics can disagree.
@@ -311,6 +319,8 @@ During preparation of this manuscript, the author used OpenAI Codex for coding, 
 
 \section*{Data and Code Availability}
 Code, manuscript source, figures, and summary tables are prepared for release at \url{https://github.com/Linkgyu/rockpile-edgeconv-arxiv}. The full generated scenes can be regenerated using the included scripts.
+
+\FloatBarrier
 
 \begin{thebibliography}{30}
 \bibitem{laurence2011} Laurence, D. Establishing a sustainable mining operation: an overview. \emph{Journal of Cleaner Production} 2011, 19, 278--284.
