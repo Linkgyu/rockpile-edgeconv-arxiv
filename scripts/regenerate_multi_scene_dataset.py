@@ -13,7 +13,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data.exterior_filter import default_viewpoints, exterior_points_from_viewpoints
+from src.data.exterior_filter import default_viewpoints, exterior_points_from_hpr_viewpoints
 from src.data.synthetic_piles import (
     generate_chrono_dem_scene,
     generate_synthetic_rockpile_v1_scene,
@@ -32,7 +32,7 @@ TABLE_DIR = PROJECT_ROOT / "outputs" / "tables"
 N_FRAGMENTS_PER_SCENE = 220
 TOTAL_SURFACE_POINTS = 42_000
 BASE_SEED = 20260525
-FILTER_VERSION = "angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible"
+FILTER_VERSION = "hpr_multiview_exterior"
 
 
 DEM_PRESETS = {
@@ -414,16 +414,12 @@ def generate_scene(
     else:
         raise ValueError(f"Unknown placement backend: {placement_backend}")
     viewpoints = default_viewpoints(full_points, margin=0.8)
-    exterior_points, exterior_labels, visible_idx = exterior_points_from_viewpoints(
+    exterior_points, exterior_labels, visible_idx = exterior_points_from_hpr_viewpoints(
         full_points,
         full_labels,
         viewpoints,
-        angular_resolution_deg=0.24,
-        range_tolerance_m=0.012,
-        occlusion_neighbor_bins=2,
-        height_envelope_grid_m=0.035,
-        height_envelope_tolerance_m=0.030,
-        height_envelope_mode="preserve_side_visible",
+        radius_scale=100.0,
+        height_envelope_grid_m=None,
     )
 
     exterior_points = exterior_points.astype(np.float32)
@@ -462,12 +458,10 @@ def generate_scene(
         ground_truth_P80_mm=np.array([gt_p80]),
         cone_base_radius_m=np.array([cone_geometry["base_radius_m"]]),
         cone_height_m=np.array([cone_geometry["pile_height_m"]]),
-        angular_resolution_deg=np.array([0.24]),
-        range_tolerance_m=np.array([0.012]),
-        occlusion_neighbor_bins=np.array([2]),
-        height_envelope_grid_m=np.array([0.035]),
-        height_envelope_tolerance_m=np.array([0.030]),
-        height_envelope_mode=np.array(["preserve_side_visible"]),
+        hpr_radius_scale=np.array([100.0]),
+        height_envelope_grid_m=np.array([np.nan]),
+        height_envelope_tolerance_m=np.array([np.nan]),
+        height_envelope_mode=np.array(["none"]),
         density_keep_fraction=np.array([keep_prob]),
         scan_filter_version=np.array([FILTER_VERSION]),
         dataset_tag=np.array([dataset_tag]),

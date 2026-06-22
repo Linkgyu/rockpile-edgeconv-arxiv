@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.spatial import ConvexHull, QhullError
 
 
 def keep_xy_height_envelope(
@@ -43,6 +44,85 @@ def keep_xy_height_envelope(
 
     kept = np.flatnonzero(keep)
     return points[kept], labels[kept], source_indices[kept]
+
+
+def hidden_point_removal_indices(
+    points_xyz: np.ndarray,
+    viewpoint_xyz: np.ndarray,
+    radius_scale: float = 100.0,
+) -> np.ndarray:
+    """Return HPR-visible point indices from one viewpoint.
+
+    This implements the spherical flipping Hidden Point Removal method from
+    Katz et al. (2007). The camera is translated to the origin, points are
+    flipped through a large sphere, and convex-hull vertices of the flipped set
+    are visible from the camera.
+    """
+
+    points = np.asarray(points_xyz, dtype=float)
+    viewpoint = np.asarray(viewpoint_xyz, dtype=float).reshape(3)
+    if len(points) == 0:
+        return np.empty(0, dtype=np.int64)
+
+    vectors = points - viewpoint[None, :]
+    ranges = np.linalg.norm(vectors, axis=1)
+    valid = ranges > 1e-12
+    if valid.sum() < 4:
+        return np.flatnonzero(valid).astype(np.int64)
+
+    valid_idx = np.flatnonzero(valid)
+    vectors_valid = vectors[valid]
+    ranges_valid = ranges[valid]
+    diameter = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
+    radius = max(float(radius_scale) * max(diameter, 1e-6), float(ranges_valid.max()) * 1.01)
+    flipped = vectors_valid + 2.0 * (radius - ranges_valid)[:, None] * (vectors_valid / ranges_valid[:, None])
+    augmented = np.vstack([flipped, np.zeros(3, dtype=float)])
+
+    try:
+        hull = ConvexHull(augmented, qhull_options="QJ")
+    except QhullError:
+        return np.empty(0, dtype=np.int64)
+
+    vertices = np.asarray(hull.vertices, dtype=np.int64)
+    visible_local = vertices[vertices < len(vectors_valid)]
+    return valid_idx[np.unique(visible_local)].astype(np.int64)
+
+
+def exterior_points_from_hpr_viewpoints(
+    points_xyz: np.ndarray,
+    labels: np.ndarray,
+    viewpoint_xyz_list: np.ndarray,
+    radius_scale: float = 100.0,
+    height_envelope_grid_m: float | None = None,
+    height_envelope_tolerance_m: float = 0.030,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Keep points visible from at least one viewpoint using HPR.
+
+    The default is HPR-only because an XY top envelope can incorrectly erase
+    legitimate side-visible points on a muckpile slope. A mild height envelope
+    remains available for controlled ablations.
+    """
+
+    points = np.asarray(points_xyz, dtype=float)
+    labels = np.asarray(labels)
+    viewpoints = np.asarray(viewpoint_xyz_list, dtype=float)
+    visible_mask = np.zeros(len(points), dtype=bool)
+    for viewpoint in viewpoints:
+        visible_idx = hidden_point_removal_indices(points, viewpoint, radius_scale=radius_scale)
+        visible_mask[visible_idx] = True
+
+    visible_idx = np.flatnonzero(visible_mask).astype(np.int64)
+    exterior_points = points[visible_idx]
+    exterior_labels = labels[visible_idx]
+    if height_envelope_grid_m is not None:
+        return keep_xy_height_envelope(
+            exterior_points,
+            exterior_labels,
+            source_indices=visible_idx,
+            grid_resolution_m=height_envelope_grid_m,
+            z_tolerance_m=height_envelope_tolerance_m,
+        )
+    return exterior_points, exterior_labels, visible_idx
 
 
 def exterior_points_from_viewpoints(
@@ -160,8 +240,8 @@ def exterior_points_from_viewpoints(
     return exterior_points, exterior_labels, visible_idx
 
 
-def default_viewpoints(points_xyz: np.ndarray, margin: float = 1.0) -> np.ndarray:
-    """Create four side viewpoints and one overhead viewpoint around a pile."""
+def default_viewpoints(points_xyz: np.ndarray, margin: float = 1.0, n_side: int = 8) -> np.ndarray:
+    """Create a ring of side viewpoints plus one overhead viewpoint around a pile."""
 
     points = np.asarray(points_xyz, dtype=float)
     center = points.mean(axis=0)
@@ -169,13 +249,13 @@ def default_viewpoints(points_xyz: np.ndarray, margin: float = 1.0) -> np.ndarra
     r = float(max(span[0], span[1]) * 1.8 + margin)
     z_mid = float(center[2] + 0.35 * span[2])
     z_top = float(points[:, 2].max() + r)
-    return np.array(
+    angles = np.linspace(0.0, 2.0 * np.pi, max(4, int(n_side)), endpoint=False)
+    side = np.column_stack(
         [
-            [center[0] + r, center[1], z_mid],
-            [center[0] - r, center[1], z_mid],
-            [center[0], center[1] + r, z_mid],
-            [center[0], center[1] - r, z_mid],
-            [center[0], center[1], z_top],
-        ],
-        dtype=float,
+            center[0] + r * np.cos(angles),
+            center[1] + r * np.sin(angles),
+            np.full(len(angles), z_mid),
+        ]
     )
+    overhead = np.array([[center[0], center[1], z_top]], dtype=float)
+    return np.vstack([side, overhead]).astype(float)

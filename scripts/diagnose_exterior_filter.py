@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.regenerate_multi_scene_dataset import BASE_SEED, DEM_PRESETS  # noqa: E402
-from src.data.exterior_filter import default_viewpoints, exterior_points_from_viewpoints  # noqa: E402
+from src.data.exterior_filter import default_viewpoints, exterior_points_from_hpr_viewpoints, exterior_points_from_viewpoints  # noqa: E402
 from src.data.synthetic_piles import generate_physics_informed_dem_scene, load_fragment_catalog  # noqa: E402
 
 
@@ -137,7 +137,7 @@ def main() -> None:
         height_envelope_tolerance_m=0.030,
         height_envelope_mode="top_only",
     )
-    new_points, new_labels, _ = exterior_points_from_viewpoints(
+    depth_points, depth_labels, _ = exterior_points_from_viewpoints(
         full_points,
         full_labels,
         viewpoints,
@@ -148,24 +148,22 @@ def main() -> None:
         height_envelope_tolerance_m=0.030,
         height_envelope_mode="preserve_side_visible",
     )
-    exterior_points, exterior_labels, exterior_source_idx = exterior_points_from_viewpoints(
+    exterior_points, exterior_labels, exterior_source_idx = exterior_points_from_hpr_viewpoints(
         full_points,
         full_labels,
         viewpoints,
-        angular_resolution_deg=0.24,
-        range_tolerance_m=0.012,
-        occlusion_neighbor_bins=2,
-        height_envelope_grid_m=0.035,
-        height_envelope_tolerance_m=0.030,
-        height_envelope_mode="preserve_side_visible",
+        radius_scale=100.0,
+        height_envelope_grid_m=None,
     )
+    new_points, new_labels = exterior_points, exterior_labels
 
     summary = pd.DataFrame(
         [
             summarize("full sampled surface", full_points, full_labels, full_labels),
             summarize("viewpoint visible only", view_points, view_labels, full_labels),
             summarize("old top-only envelope", old_points, old_labels, full_labels),
-            summarize("new depth-buffer exterior", new_points, new_labels, full_labels),
+            summarize("aggressive depth-buffer exterior", depth_points, depth_labels, full_labels),
+            summarize("new HPR multiview exterior", new_points, new_labels, full_labels),
         ]
     )
     summary_path = TABLE_DIR / f"exterior_filter_diagnostic_scene{args.scene_id:03d}.csv"
@@ -175,7 +173,7 @@ def main() -> None:
         ("A. Full sampled surface", full_points, full_labels),
         ("B. Viewpoint visible", view_points, view_labels),
         ("C. Old top-only envelope", old_points, old_labels),
-        ("D. New depth-buffer exterior", new_points, new_labels),
+        ("D. New HPR multiview exterior", new_points, new_labels),
     ]
     fig = plt.figure(figsize=(14, 10), dpi=170)
     for i, (title, points, labels) in enumerate(panels, start=1):
@@ -184,7 +182,7 @@ def main() -> None:
         ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], c=label_colors(labs), s=1.4, alpha=0.78, linewidths=0)
         ax.set_title(f"{title}\n{len(points):,} points, {len(np.unique(labels))} fragments")
         set_equal_3d(ax, full_points)
-    fig.suptitle("Exterior filter diagnostic: old top-only envelope vs side-preserving envelope", y=0.98)
+    fig.suptitle("Exterior filter diagnostic: angular envelope vs HPR multiview visibility", y=0.98)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig_path = OUT_DIR / f"exterior_filter_diagnostic_scene{args.scene_id:03d}.png"
     fig.savefig(fig_path, bbox_inches="tight")
@@ -195,7 +193,7 @@ def main() -> None:
         ("A. Full sampled surface, half cut", full_points, full_labels),
         ("B. Viewpoint visible, half cut", view_points, view_labels),
         ("C. Old top-only envelope, half cut", old_points, old_labels),
-        ("D. New depth-buffer exterior, half cut", new_points, new_labels),
+        ("D. New HPR multiview exterior, half cut", new_points, new_labels),
     ]
     fig = plt.figure(figsize=(14, 10), dpi=170)
     for i, (title, points, labels) in enumerate(section_panels, start=1):

@@ -69,8 +69,10 @@ fragmentation monitoring system.
 ## Exterior Filter Update
 
 The exterior scan filter was updated after diagnosing that the previous global
-top-envelope cleanup removed visible side/slope points while sparse angular
-visibility bins could still leak hidden interior points. The new depth-buffer
-visibility pass checks neighbouring angular bins to close pinholes, then keeps a
-thin exterior shell. See `results/figures/exterior_filter_section_scan_scene000.png`
-for the photogrammetry-style half-section diagnostic.
+top-envelope cleanup removed visible side/slope points, while the later angular
+depth-buffer variant removed too much true exterior shell. The current
+regeneration path uses multi-view Hidden Point Removal (HPR): visible points are
+computed from an eight-view side camera ring and one overhead camera using spherical flipping
+and convex-hull visibility, then unioned into a photogrammetry-like exterior
+scan. See `results/figures/exterior_filter_section_scan_scene000.png` for the
+half-section diagnostic.

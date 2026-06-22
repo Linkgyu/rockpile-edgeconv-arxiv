@@ -42,6 +42,7 @@ ACCEPTED_SCAN_FILTER_VERSIONS = {
     "angular_nearest_plus_xy_height_envelope",
     "angular_nearest_plus_xy_height_envelope_preserve_side_visible",
     "angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible",
+    "hpr_multiview_exterior",
 }
 
 ABSORB_KWARGS = {
@@ -266,7 +267,7 @@ def train_model(args: argparse.Namespace, device: torch.device, train_rows: pd.D
             "model_state_dict": best_state,
             "best_epoch": best_epoch,
             "best_val_ap": best_val_ap,
-            "scan_filter_version": "angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible",
+            "scan_filter_version": "hpr_multiview_exterior",
             "training_args": training_args,
         },
         OUT_MODELS / "edgeconv_affinity.pt",
@@ -589,7 +590,7 @@ def main() -> None:
     write_test_error_histogram(test_results, selected_variant)
 
     metadata = {
-        "scan_filter_version": "angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible",
+        "scan_filter_version": "hpr_multiview_exterior",
         "selected_variant": selected_variant,
         "selected_threshold": selected_threshold,
         "selected_bridge_probability": selected_bridge_probability,

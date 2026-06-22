@@ -13,10 +13,11 @@ large. The committed files include:
   `results/figures/exterior_filter_section_scan_scene000.png`, and
   `results/tables/exterior_filter_diagnostic_scene000.csv`
 
-The exterior filter now uses a small angular depth-buffer neighbourhood to close
-sparse point-cloud pinholes that can otherwise retain hidden/interior fragment
-surfaces. Newly generated scenes are marked with
-`angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible`.
+The exterior filter now uses multi-view Hidden Point Removal (HPR) rather than
+the angular depth-buffer ablation. HPR keeps points visible from at least one of
+the side/overhead scan viewpoints and avoids the top-envelope failure mode that
+can delete true side-visible pile surfaces. Newly generated scenes are marked
+with `hpr_multiview_exterior`.
 
 To regenerate the dataset, place or generate the Synthetic_Rockpile fragment
 catalog and set the input paths if they differ from the author's workstation:
