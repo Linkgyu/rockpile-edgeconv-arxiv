@@ -267,10 +267,10 @@ def build_manuscript():
         "methods. A graph EdgeConv model predicts whether neighbouring exterior points belong to the same fragment, and "
         "thresholded edge affinities are converted into connected components and visible-surface particle-size proxies. "
         "The same 100 scenes, each containing 150 fragments, were used for all methods with a 60:20:20 train, validation, "
-        "and test split. The latest held-out comparison showed that a calibrated graph-threshold rule gave the lowest "
-        "mean absolute eighty per cent passing-size error, 14.37 per cent, while EdgeConv with post-splitting gave "
-        "19.04 per cent and retained stronger learned local affinity information than the shallow multilayer perceptron. "
-        "The results show that synthetic exterior piles can separate two questions that are often conflated in rockpile "
+        "and test split. The latest held-out comparison showed that EdgeConv with fine high-threshold post-splitting gave "
+        "the lowest mean absolute eighty per cent passing-size error, 12.40 per cent, compared with 14.37 per cent for "
+        "the calibrated graph-threshold rule. This gain came with a high noise fraction, so the results show that "
+        "synthetic exterior piles can separate two questions that are often conflated in rockpile "
         "monitoring: whether visible fragments are cleanly segmented, and whether the resulting surface clusters recover "
         "a useful size-distribution proxy. The benchmark is intended as a reproducible pre-field testbed rather than a "
         "replacement for mine-site calibration."
@@ -472,12 +472,12 @@ def build_manuscript():
 
     heading(doc, "Results")
     p(doc, (
-        "The 24-epoch EdgeConv run showed improving training loss and high validation average precision, confirming that "
+        "The 12-epoch EdgeConv calibration run showed improving training loss and high validation average precision, confirming that "
         "the model learned informative same-fragment edge affinities. The remaining difficulty was calibration of the "
         "affinity threshold and post-processing for realistic exterior piles, where overly strict thresholds split "
         "visible fragments into too many components."
     ))
-    add_image(doc, "02_edgeconv_training_curve.png", 14.5, "Training loss and validation average precision for the 24-epoch EdgeConv edge-affinity run", "Figure 6")
+    add_image(doc, "02_edgeconv_training_curve.png", 14.5, "Training loss and validation average precision for the 12-epoch EdgeConv edge-affinity calibration run", "Figure 6")
 
     edge = read_csv(TABLE_DIR / "edgeconv_test_summary.csv")
     edge_rows = [["Variant", "Threshold", "Mean absolute P80 error (%)", "Median absolute P80 error (%)", "Mean NMI", "Mean ARI", "Noise"]]
@@ -525,10 +525,10 @@ def build_manuscript():
     p(doc, (
         "The results suggest that the benchmark is diagnosing two separate behaviours. EdgeConv learns useful edge affinity, "
         "as indicated by the training curve and validation average precision, but the final size proxy is sensitive to the "
-        "probability threshold and component rules. In the latest realistic-pile setting, very high thresholds tend to cut "
-        "components into many small pieces, raising the noise fraction and damaging the coarse size estimate. This explains "
-        "why a calibrated graph-threshold rule can outperform the neural model on P80 error even though the neural model "
-        "has learned a meaningful local affinity function."
+        "probability threshold and component rules. In the latest realistic-pile setting, a fine high-threshold sweep let "
+        "EdgeConv outperform the calibrated graph-threshold rule on P80 error. However, this setting also cut the surface "
+        "into many small components and produced a high noise fraction, so it should be interpreted as P80-oriented "
+        "calibration rather than clean fragment segmentation."
     ))
     p(doc, (
         "This finding is operationally important. A segmentation model should not be judged only by edge average precision "

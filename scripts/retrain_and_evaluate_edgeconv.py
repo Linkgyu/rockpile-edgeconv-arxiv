@@ -18,7 +18,7 @@ from src.data.scene_dataset import load_scene_index  # noqa: E402
 from src.fragmentation.psd import cumulative_psd, percentile_size  # noqa: E402
 from src.fragmentation.surface_proxy import estimate_surface_proxy  # noqa: E402
 from src.models.edgeconv import EdgeAffinityDGCNN  # noqa: E402
-from src.segmentation.components import components_from_edge_probabilities  # noqa: E402
+from src.segmentation.components import components_from_edge_mask, components_from_edge_probabilities  # noqa: E402
 from src.segmentation.metrics import clustering_scores  # noqa: E402
 from src.segmentation.postprocess import absorb_unlabelled_points_by_edge_affinity, split_oversized_clusters_by_height_markers  # noqa: E402
 from src.training.edgeconv_train import edge_metrics_on_scene, scene_edge_probabilities, train_one_scene_step  # noqa: E402
@@ -44,6 +44,13 @@ ABSORB_KWARGS = {
     "max_passes": 3,
 }
 
+HYBRID_BRIDGE_DEFAULTS = {
+    "dist_scale": 0.070,
+    "z_scale": 0.040,
+    "curv_scale": 0.050,
+    "graph_threshold": 0.85,
+}
+
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -61,7 +68,62 @@ def p80_from_labels(points_xyz: np.ndarray, labels: np.ndarray) -> float:
     return percentile_size(psd, 80.0)
 
 
-def evaluate_scene_predictions(scene: dict, probabilities: np.ndarray, threshold: float) -> list[dict]:
+def graph_geometry_score(scene: dict, dist_scale: float, z_scale: float, curv_scale: float) -> np.ndarray:
+    """Geometry-only continuity score used as a conservative bridge signal."""
+
+    features = np.asarray(scene["edge_features"], dtype=float)
+    dist = features[:, 6]
+    z_jump = features[:, 8]
+    normal_agreement = np.abs(features[:, 9])
+    normal_angle = features[:, 10]
+    curv_delta = features[:, 13]
+    return (
+        0.30 * np.exp(-dist / dist_scale)
+        + 0.25 * normal_agreement
+        + 0.20 * np.exp(-z_jump / z_scale)
+        + 0.15 * np.exp(-curv_delta / curv_scale)
+        + 0.10 * np.exp(-normal_angle / 0.18)
+    )
+
+
+def hybrid_bridge_labels(
+    scene: dict,
+    probabilities: np.ndarray,
+    threshold: float,
+    bridge_probability: float,
+    graph_threshold: float,
+    dist_scale: float = HYBRID_BRIDGE_DEFAULTS["dist_scale"],
+    z_scale: float = HYBRID_BRIDGE_DEFAULTS["z_scale"],
+    curv_scale: float = HYBRID_BRIDGE_DEFAULTS["curv_scale"],
+    min_cluster_points: int = 10,
+) -> np.ndarray:
+    """Join high-probability EdgeConv edges plus conservative geometry bridges.
+
+    The bridge is deliberately restricted to edges that are both plausible under
+    the learned model and highly continuous under the graph baseline geometry
+    score.  It targets the observed failure mode where a strict EdgeConv
+    threshold breaks true fragments into many small components.
+    """
+
+    graph_score = graph_geometry_score(scene, dist_scale, z_scale, curv_scale)
+    keep = (np.asarray(probabilities) >= threshold) | (
+        (np.asarray(probabilities) >= bridge_probability) & (graph_score >= graph_threshold)
+    )
+    return components_from_edge_mask(
+        len(scene["points_xyz"]),
+        scene["edges"],
+        keep,
+        min_cluster_points=min_cluster_points,
+    )
+
+
+def evaluate_scene_predictions(
+    scene: dict,
+    probabilities: np.ndarray,
+    threshold: float,
+    bridge_probability: float | None = None,
+    graph_threshold: float | None = None,
+) -> list[dict]:
     true_labels = scene["instance_labels"]
     points = scene["points_xyz"]
     true_p80 = float(scene["ground_truth_P80_mm"][0])
@@ -78,20 +140,49 @@ def evaluate_scene_predictions(scene: dict, probabilities: np.ndarray, threshold
     )
     post_labels = split_oversized_clusters_by_height_markers(points, raw_labels, **POSTPROCESS_KWARGS)
     absorbed_post_labels = split_oversized_clusters_by_height_markers(points, absorbed_labels, **POSTPROCESS_KWARGS)
-
-    rows = []
-    for variant, labels in [
+    variants = [
         ("edgeconv", raw_labels),
         ("edgeconv_absorb", absorbed_labels),
         ("edgeconv_post_split", post_labels),
         ("edgeconv_absorb_post_split", absorbed_post_labels),
-    ]:
+    ]
+    if bridge_probability is not None and graph_threshold is not None:
+        bridge_labels = hybrid_bridge_labels(
+            scene,
+            probabilities,
+            threshold=threshold,
+            bridge_probability=bridge_probability,
+            graph_threshold=graph_threshold,
+        )
+        bridge_absorb_threshold = max(ABSORB_KWARGS["min_absorb_threshold"], bridge_probability)
+        bridge_absorbed_labels = absorb_unlabelled_points_by_edge_affinity(
+            bridge_labels,
+            edges,
+            probabilities,
+            absorb_threshold=bridge_absorb_threshold,
+            max_passes=ABSORB_KWARGS["max_passes"],
+        )
+        bridge_post_labels = split_oversized_clusters_by_height_markers(points, bridge_labels, **POSTPROCESS_KWARGS)
+        bridge_absorbed_post_labels = split_oversized_clusters_by_height_markers(points, bridge_absorbed_labels, **POSTPROCESS_KWARGS)
+        variants.extend(
+            [
+                ("edgeconv_hybrid_bridge", bridge_labels),
+                ("edgeconv_hybrid_bridge_absorb", bridge_absorbed_labels),
+                ("edgeconv_hybrid_bridge_post_split", bridge_post_labels),
+                ("edgeconv_hybrid_bridge_absorb_post_split", bridge_absorbed_post_labels),
+            ]
+        )
+
+    rows = []
+    for variant, labels in variants:
         scores = clustering_scores(true_labels, labels)
         pred_p80 = p80_from_labels(points, labels)
         rows.append(
             {
                 "variant": variant,
                 "threshold": float(threshold),
+                "bridge_probability": float(bridge_probability) if bridge_probability is not None else float("nan"),
+                "graph_threshold": float(graph_threshold) if graph_threshold is not None else float("nan"),
                 "predicted_P80_mm": pred_p80,
                 "ground_truth_P80_mm": true_p80,
                 "abs_P80_error_mm": abs(pred_p80 - true_p80) if np.isfinite(pred_p80) else float("nan"),
@@ -185,6 +276,7 @@ def validation_threshold_sweep(model: EdgeAffinityDGCNN, rows: pd.DataFrame, dev
             np.linspace(0.50, 0.95, 16),
             np.linspace(0.96, 0.995, 8),
             np.linspace(0.996, 0.999, 4),
+            [0.9992, 0.9995, 0.9997, 0.9999],
         ]
     )
     all_rows = []
@@ -195,13 +287,33 @@ def validation_threshold_sweep(model: EdgeAffinityDGCNN, rows: pd.DataFrame, dev
                 result["scene_id"] = int(row["scene_id"])
                 result["split"] = row["split"]
                 all_rows.append(result)
+        bridge_thresholds = np.unique(np.r_[np.linspace(0.985, 0.999, 8), [0.997, 0.9992, 0.9995, 0.9997, 0.9999]])
+        bridge_probabilities = [0.50, 0.70, 0.85, 0.95]
+        graph_thresholds = [0.80, 0.85, 0.90]
+        for threshold in bridge_thresholds:
+            for bridge_probability in bridge_probabilities:
+                if bridge_probability >= threshold:
+                    continue
+                for graph_threshold in graph_thresholds:
+                    for result in evaluate_scene_predictions(
+                        scene,
+                        probs,
+                        float(threshold),
+                        bridge_probability=float(bridge_probability),
+                        graph_threshold=float(graph_threshold),
+                    ):
+                        if not str(result["variant"]).startswith("edgeconv_hybrid_bridge"):
+                            continue
+                        result["scene_id"] = int(row["scene_id"])
+                        result["split"] = row["split"]
+                        all_rows.append(result)
         print(f"validated scene {scene_idx + 1}/{len(rows)}", flush=True)
     return pd.DataFrame(all_rows)
 
 
-def choose_validation_setting(sweep: pd.DataFrame, noise_penalty: float = 0.0, max_noise_fraction: float = 1.0) -> tuple[str, float, pd.DataFrame]:
+def choose_validation_setting(sweep: pd.DataFrame, noise_penalty: float = 0.0, max_noise_fraction: float = 1.0) -> tuple[dict, pd.DataFrame]:
     summary = (
-        sweep.groupby(["variant", "threshold"], as_index=False)
+        sweep.groupby(["variant", "threshold", "bridge_probability", "graph_threshold"], as_index=False, dropna=False)
         .agg(
             mean_abs_P80_error_pct=("abs_P80_error_pct", "mean"),
             median_abs_P80_error_pct=("abs_P80_error_pct", "median"),
@@ -220,7 +332,7 @@ def choose_validation_setting(sweep: pd.DataFrame, noise_penalty: float = 0.0, m
     eligible = eligible.sort_values(["selection_score", "mean_abs_P80_error_pct", "median_abs_P80_error_pct"]).reset_index(drop=True)
     summary = summary.sort_values(["selection_score", "mean_abs_P80_error_pct", "median_abs_P80_error_pct"]).reset_index(drop=True)
     best = eligible.iloc[0]
-    return str(best["variant"]), float(best["threshold"]), summary
+    return best.to_dict(), summary
 
 
 def evaluate_test_split(
@@ -229,37 +341,26 @@ def evaluate_test_split(
     device: torch.device,
     selected_variant: str,
     selected_threshold: float,
+    selected_bridge_probability: float | None = None,
+    selected_graph_threshold: float | None = None,
 ) -> pd.DataFrame:
     out_rows = []
     for scene_idx, row in rows.reset_index(drop=True).iterrows():
         scene, probs = scene_edge_probabilities(model, row, device=device)
-        evaluated = evaluate_scene_predictions(scene, probs, selected_threshold)
+        evaluated = evaluate_scene_predictions(
+            scene,
+            probs,
+            selected_threshold,
+            bridge_probability=selected_bridge_probability,
+            graph_threshold=selected_graph_threshold,
+        )
         for result in evaluated:
             result["scene_id"] = int(row["scene_id"])
             result["split"] = row["split"]
             out_rows.append(result)
 
             if result["variant"] == selected_variant:
-                raw_labels = components_from_edge_probabilities(
-                    len(scene["points_xyz"]),
-                    scene["edges"],
-                    probs,
-                    threshold=selected_threshold,
-                    min_cluster_points=10,
-                )
-                labels = raw_labels
-                if selected_variant in {"edgeconv_absorb", "edgeconv_absorb_post_split"}:
-                    labels = absorb_unlabelled_points_by_edge_affinity(
-                        raw_labels,
-                        scene["edges"],
-                        probs,
-                        absorb_threshold=max(ABSORB_KWARGS["min_absorb_threshold"], selected_threshold - ABSORB_KWARGS["threshold_offset"]),
-                        max_passes=ABSORB_KWARGS["max_passes"],
-                    )
-                if selected_variant == "edgeconv_post_split":
-                    labels = split_oversized_clusters_by_height_markers(scene["points_xyz"], raw_labels, **POSTPROCESS_KWARGS)
-                elif selected_variant == "edgeconv_absorb_post_split":
-                    labels = split_oversized_clusters_by_height_markers(scene["points_xyz"], labels, **POSTPROCESS_KWARGS)
+                labels = labels_for_selected_variant(scene, probs, selected_variant, selected_threshold, selected_bridge_probability, selected_graph_threshold)
                 np.savez_compressed(
                     OUT_MODELS / f"scene_{int(row['scene_id']):03d}_{selected_variant}_predictions.npz",
                     edge_probabilities=probs.astype(np.float32),
@@ -270,6 +371,59 @@ def evaluate_test_split(
                 )
         print(f"tested scene {scene_idx + 1}/{len(rows)}", flush=True)
     return pd.DataFrame(out_rows)
+
+
+def labels_for_selected_variant(
+    scene: dict,
+    probs: np.ndarray,
+    selected_variant: str,
+    selected_threshold: float,
+    selected_bridge_probability: float | None = None,
+    selected_graph_threshold: float | None = None,
+) -> np.ndarray:
+    if selected_variant.startswith("edgeconv_hybrid_bridge"):
+        if selected_bridge_probability is None or selected_graph_threshold is None:
+            raise ValueError("Hybrid bridge variant requires bridge_probability and graph_threshold")
+        labels = hybrid_bridge_labels(
+            scene,
+            probs,
+            threshold=selected_threshold,
+            bridge_probability=selected_bridge_probability,
+            graph_threshold=selected_graph_threshold,
+        )
+        if selected_variant in {"edgeconv_hybrid_bridge_absorb", "edgeconv_hybrid_bridge_absorb_post_split"}:
+            labels = absorb_unlabelled_points_by_edge_affinity(
+                labels,
+                scene["edges"],
+                probs,
+                absorb_threshold=max(ABSORB_KWARGS["min_absorb_threshold"], selected_bridge_probability),
+                max_passes=ABSORB_KWARGS["max_passes"],
+            )
+        if selected_variant in {"edgeconv_hybrid_bridge_post_split", "edgeconv_hybrid_bridge_absorb_post_split"}:
+            labels = split_oversized_clusters_by_height_markers(scene["points_xyz"], labels, **POSTPROCESS_KWARGS)
+        return labels
+
+    raw_labels = components_from_edge_probabilities(
+        len(scene["points_xyz"]),
+        scene["edges"],
+        probs,
+        threshold=selected_threshold,
+        min_cluster_points=10,
+    )
+    labels = raw_labels
+    if selected_variant in {"edgeconv_absorb", "edgeconv_absorb_post_split"}:
+        labels = absorb_unlabelled_points_by_edge_affinity(
+            raw_labels,
+            scene["edges"],
+            probs,
+            absorb_threshold=max(ABSORB_KWARGS["min_absorb_threshold"], selected_threshold - ABSORB_KWARGS["threshold_offset"]),
+            max_passes=ABSORB_KWARGS["max_passes"],
+        )
+    if selected_variant == "edgeconv_post_split":
+        labels = split_oversized_clusters_by_height_markers(scene["points_xyz"], raw_labels, **POSTPROCESS_KWARGS)
+    elif selected_variant == "edgeconv_absorb_post_split":
+        labels = split_oversized_clusters_by_height_markers(scene["points_xyz"], labels, **POSTPROCESS_KWARGS)
+    return labels
 
 
 def write_training_curve(history: pd.DataFrame) -> None:
@@ -376,15 +530,34 @@ def main() -> None:
     model = args._trained_model
     sweep = validation_threshold_sweep(model, val_rows, device)
     sweep.to_csv(OUT_TABLES / "edgeconv_validation_threshold_sweep.csv", index=False)
-    selected_variant, selected_threshold, validation_summary = choose_validation_setting(
+    selected_setting, validation_summary = choose_validation_setting(
         sweep,
         noise_penalty=args.noise_penalty,
         max_noise_fraction=args.max_noise_fraction,
     )
+    selected_variant = str(selected_setting["variant"])
+    selected_threshold = float(selected_setting["threshold"])
+    selected_bridge_probability = selected_setting.get("bridge_probability")
+    selected_graph_threshold = selected_setting.get("graph_threshold")
+    selected_bridge_probability = None if pd.isna(selected_bridge_probability) else float(selected_bridge_probability)
+    selected_graph_threshold = None if pd.isna(selected_graph_threshold) else float(selected_graph_threshold)
     validation_summary.to_csv(OUT_TABLES / "edgeconv_validation_threshold_summary.csv", index=False)
-    print(f"selected validation setting: variant={selected_variant}, threshold={selected_threshold:.4f}", flush=True)
+    print(
+        "selected validation setting: "
+        f"variant={selected_variant}, threshold={selected_threshold:.4f}, "
+        f"bridge_probability={selected_bridge_probability}, graph_threshold={selected_graph_threshold}",
+        flush=True,
+    )
 
-    test_results = evaluate_test_split(model, test_rows, device, selected_variant, selected_threshold)
+    test_results = evaluate_test_split(
+        model,
+        test_rows,
+        device,
+        selected_variant,
+        selected_threshold,
+        selected_bridge_probability=selected_bridge_probability,
+        selected_graph_threshold=selected_graph_threshold,
+    )
     test_results.to_csv(OUT_TABLES / "edgeconv_test_results.csv", index=False)
 
     test_summary = (
@@ -392,6 +565,8 @@ def main() -> None:
         .agg(
             n_scenes=("scene_id", "count"),
             threshold=("threshold", "first"),
+            bridge_probability=("bridge_probability", "first"),
+            graph_threshold=("graph_threshold", "first"),
             mean_abs_P80_error_pct=("abs_P80_error_pct", "mean"),
             median_abs_P80_error_pct=("abs_P80_error_pct", "median"),
             mean_abs_P80_error_mm=("abs_P80_error_mm", "mean"),
@@ -411,6 +586,8 @@ def main() -> None:
         "scan_filter_version": "angular_nearest_plus_xy_height_envelope",
         "selected_variant": selected_variant,
         "selected_threshold": selected_threshold,
+        "selected_bridge_probability": selected_bridge_probability,
+        "selected_graph_threshold": selected_graph_threshold,
         "best_epoch": int(history.loc[history["val_average_precision"].idxmax(), "epoch"]),
         "best_val_average_precision": float(history["val_average_precision"].max()),
         "postprocess_kwargs": POSTPROCESS_KWARGS,

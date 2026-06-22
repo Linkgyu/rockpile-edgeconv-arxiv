@@ -64,19 +64,35 @@ def main() -> None:
     try:
         sweep = runner.validation_threshold_sweep(model, val_rows, device)
         sweep.to_csv(runner.OUT_TABLES / "edgeconv_validation_threshold_sweep.csv", index=False)
-        selected_variant, selected_threshold, validation_summary = runner.choose_validation_setting(
+        selected_setting, validation_summary = runner.choose_validation_setting(
             sweep,
             noise_penalty=args.noise_penalty,
             max_noise_fraction=args.max_noise_fraction,
         )
+        selected_variant = str(selected_setting["variant"])
+        selected_threshold = float(selected_setting["threshold"])
+        selected_bridge_probability = selected_setting.get("bridge_probability")
+        selected_graph_threshold = selected_setting.get("graph_threshold")
+        selected_bridge_probability = None if pd.isna(selected_bridge_probability) else float(selected_bridge_probability)
+        selected_graph_threshold = None if pd.isna(selected_graph_threshold) else float(selected_graph_threshold)
         validation_summary.to_csv(runner.OUT_TABLES / "edgeconv_validation_threshold_summary.csv", index=False)
-        test_results = runner.evaluate_test_split(model, test_rows, device, selected_variant, selected_threshold)
+        test_results = runner.evaluate_test_split(
+            model,
+            test_rows,
+            device,
+            selected_variant,
+            selected_threshold,
+            selected_bridge_probability=selected_bridge_probability,
+            selected_graph_threshold=selected_graph_threshold,
+        )
         test_results.to_csv(runner.OUT_TABLES / "edgeconv_test_results.csv", index=False)
         test_summary = (
             test_results.groupby("variant", as_index=False)
             .agg(
                 n_scenes=("scene_id", "count"),
                 threshold=("threshold", "first"),
+                bridge_probability=("bridge_probability", "first"),
+                graph_threshold=("graph_threshold", "first"),
                 mean_abs_P80_error_pct=("abs_P80_error_pct", "mean"),
                 median_abs_P80_error_pct=("abs_P80_error_pct", "median"),
                 mean_abs_P80_error_mm=("abs_P80_error_mm", "mean"),
@@ -98,6 +114,8 @@ def main() -> None:
                     "max_noise_fraction": args.max_noise_fraction,
                     "selected_variant": selected_variant,
                     "selected_threshold": selected_threshold,
+                    "selected_bridge_probability": selected_bridge_probability,
+                    "selected_graph_threshold": selected_graph_threshold,
                 },
                 indent=2,
             ),

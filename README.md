@@ -37,13 +37,13 @@ Dataset:
 
 EdgeConv training/evaluation:
 
-- 24 epochs, CPU-compatible PyTorch implementation
-- Best validation AP: 0.9313 at epoch 24
+- 12-epoch CPU-compatible PyTorch calibration run
+- Best validation AP: 0.9208 at epoch 12
 - Validation-selected variant: `edgeconv_post_split`
-- Validation-selected threshold: 0.997
-- Held-out test mean absolute P80 error: 19.04%
-- Held-out test median absolute P80 error: 18.36%
-- Mean test noise fraction: 0.603
+- Validation-selected threshold: 0.9995 after a fine high-threshold sweep
+- Held-out test mean absolute P80 error: 12.40%
+- Held-out test median absolute P80 error: 13.32%
+- Mean test noise fraction: 0.831
 
 ## Reproduce
 
@@ -60,7 +60,8 @@ Regenerate data and train/evaluate using the commands in `data/README.md`.
 
 The model learns edge affinity clearly, but PSD estimation remains sensitive to
 threshold and connected-component post-processing. In the reported DEM-relaxed
-dataset, validation selects a high threshold of 0.997, producing a high noise
+dataset, validation selects a high threshold of 0.9995. This lowers held-out P80
+error below the hand-crafted graph baseline, but it also produces a high noise
 fraction on test scenes. This repository should therefore be treated as a
 controlled synthetic benchmark and a reproducible baseline, not as a field-ready
 fragmentation monitoring system.

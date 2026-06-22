@@ -5,7 +5,9 @@ from __future__ import annotations
 import numpy as np
 
 
-def components_from_edge_probabilities(n_points: int, edges: np.ndarray, probabilities: np.ndarray, threshold: float, min_cluster_points: int = 10) -> np.ndarray:
+def components_from_edge_mask(n_points: int, edges: np.ndarray, keep_mask: np.ndarray, min_cluster_points: int = 10) -> np.ndarray:
+    """Connected components from an explicit edge-retention mask."""
+
     parent = np.arange(n_points, dtype=np.int64)
     rank = np.zeros(n_points, dtype=np.int8)
 
@@ -27,7 +29,7 @@ def components_from_edge_probabilities(n_points: int, edges: np.ndarray, probabi
             parent[rb] = ra
             rank[ra] += 1
 
-    for a, b in edges[np.asarray(probabilities) >= threshold]:
+    for a, b in edges[np.asarray(keep_mask, dtype=bool)]:
         union(int(a), int(b))
     roots = np.array([find(i) for i in range(n_points)], dtype=np.int64)
     _, labels = np.unique(roots, return_inverse=True)
@@ -39,3 +41,12 @@ def components_from_edge_probabilities(n_points: int, edges: np.ndarray, probabi
         _, inv = np.unique(labels[valid], return_inverse=True)
         out[valid] = inv
     return out
+
+
+def components_from_edge_probabilities(n_points: int, edges: np.ndarray, probabilities: np.ndarray, threshold: float, min_cluster_points: int = 10) -> np.ndarray:
+    return components_from_edge_mask(
+        n_points,
+        edges,
+        np.asarray(probabilities) >= threshold,
+        min_cluster_points=min_cluster_points,
+    )

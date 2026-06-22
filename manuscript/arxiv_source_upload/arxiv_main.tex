@@ -18,7 +18,7 @@
 \maketitle
 
 \begin{abstract}
-Reliable rock-fragmentation monitoring is useful for blast assessment and mine-to-mill control, but real rockpile point clouds rarely provide point-level fragment labels or independent particle-size-distribution (PSD) references. This paper presents a synthetic exterior point-cloud benchmark designed as a pre-field testbed for visible-surface PSD proxy estimation. The workflow starts from a library of synthetic rock-like fragment meshes with known volume and identity. These fragments are placed into labelled rockpile scenes, converted to exterior-only point-cloud scans, and used to train or calibrate surface-clustering methods. The main learning target is not a scene-specific fragment-ID class; instead, a DGCNN/EdgeConv model predicts whether neighbouring exterior points belong to the same fragment. Connected components of high-affinity edges become visible-surface clusters, and those clusters are converted into PSD and P80 proxy estimates. The latest benchmark run uses 100 no-boundary synthetic exterior scenes with 150 requested fragments per scene and a 60/20/20 train/validation/test split. EdgeConv reached validation average precision of 0.9313 after 24 epochs, but its selected post-split connected-component setting produced held-out mean absolute P80 error of 19.04\% with mean noise fraction of 0.603. Re-evaluating other methods on the same 150-fragment split showed that a calibrated hand-crafted graph-threshold rule achieved lower P80 error, 14.37\%, but with high noise fraction and weak ARI; MLP affinity, DBSCAN, and normal/curvature region growing exposed different trade-offs between P80 error and instance quality. The results show that same-fragment affinity can be learned, but robust graph partitioning, threshold calibration, and post-processing remain the main obstacles before field deployment.
+Reliable rock-fragmentation monitoring is useful for blast assessment and mine-to-mill control, but real rockpile point clouds rarely provide point-level fragment labels or independent particle-size-distribution (PSD) references. This paper presents a synthetic exterior point-cloud benchmark designed as a pre-field testbed for visible-surface PSD proxy estimation. The workflow starts from a library of synthetic rock-like fragment meshes with known volume and identity. These fragments are placed into labelled rockpile scenes, converted to exterior-only point-cloud scans, and used to train or calibrate surface-clustering methods. The main learning target is not a scene-specific fragment-ID class; instead, a DGCNN/EdgeConv model predicts whether neighbouring exterior points belong to the same fragment. Connected components of high-affinity edges become visible-surface clusters, and those clusters are converted into PSD and P80 proxy estimates. The latest benchmark run uses 100 no-boundary synthetic exterior scenes with 150 requested fragments per scene and a 60/20/20 train/validation/test split. After a fine high-threshold validation sweep, the selected EdgeConv post-split setting used threshold 0.9995 and produced held-out mean absolute P80 error of 12.40\%, lower than the calibrated hand-crafted graph-threshold rule at 14.37\%. This P80 gain came with a high noise fraction of 0.831 and weak instance scores, showing that visible-surface PSD proxy recovery and clean fragment instance segmentation remain different objectives.
 \end{abstract}
 
 \textbf{Keywords:} rock fragmentation; synthetic rockpile; exterior point cloud; visible-surface PSD proxy; EdgeConv; DGCNN; particle size distribution; P80; photogrammetry; mining
@@ -170,7 +170,7 @@ These advantages do not make DGCNN a magic fragment segmenter. They make it a re
 \section{Training Protocol}
 Point features include normalized coordinates, normals, and curvature. Edge features encode local geometric differences and surface continuity cues. During training, edges are sampled in balanced positive/negative batches because same-fragment and different-fragment edges are naturally imbalanced in a local graph. Training is performed scene by scene to avoid leakage between neighbouring points from the same pile across train and validation splits.
 
-The latest run trained the EdgeConv model for 24 epochs. The maximum number of sampled training edges per scene was 22,000, the maximum number of validation edges per scene was 36,000, and validation metrics were evaluated on 12 validation scenes per epoch for efficiency. Photogrammetry-realism augmentation was retained during training with strength 0.75. This augmentation perturbs point coordinates, normals, curvature, and edge geometry while preserving labels, approximating common reconstruction imperfections without changing the held-out synthetic ground truth.
+The latest calibration run trained the EdgeConv model for 12 epochs. The maximum number of sampled training edges per scene was 18,000, the maximum number of validation edges per scene was 28,000, and validation metrics were evaluated on 8 validation scenes per epoch for efficiency. Photogrammetry-realism augmentation was retained during training with strength 0.75. This augmentation perturbs point coordinates, normals, curvature, and edge geometry while preserving labels, approximating common reconstruction imperfections without changing the held-out synthetic ground truth.
 
 At inference, edge probabilities are thresholded and connected components become predicted visible-surface clusters. Four variants are evaluated: raw connected components, affinity-based absorption of unlabelled points, height-marker splitting of oversized clusters, and the combined absorb-plus-post-split variant. Threshold selection is performed only on the validation split. Test scenes are held out until the selected variant and threshold are frozen.
 
@@ -203,12 +203,12 @@ Predicted components are converted into visible-surface PSD proxies. For each pr
 The evaluation reports both edge-learning and downstream PSD behaviour. Average precision and ROC-AUC measure how well the model ranks same-fragment edges. P80 error measures whether the resulting connected components preserve enough size information for a volume-weighted surface proxy. Noise fraction, normalized mutual information (NMI), and adjusted Rand index (ARI) diagnose whether predicted components resemble fragment instances. These metrics can disagree: a threshold can improve P80 while still producing weak instance segmentation, or improve cluster purity while fragmenting large rocks and hurting P80.
 
 \section{Results}
-The EdgeConv model learned edge affinity clearly. Training loss decreased from 0.5722 at epoch 1 to 0.3479 at epoch 24. Validation average precision increased from 0.8569 to 0.9313, and validation ROC-AUC reached 0.9179.
+The EdgeConv model learned edge affinity clearly. Training loss decreased from 0.5722 at epoch 1 to 0.3884 at epoch 12. Validation average precision increased from 0.8560 to 0.9208, and validation ROC-AUC reached 0.9065.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.78\linewidth]{figures/02_edgeconv_training_curve.png}
-\caption{Training loss and validation average precision for the 24-epoch EdgeConv edge-affinity run.}
+\caption{Training loss and validation average precision for the 12-epoch EdgeConv edge-affinity calibration run.}
 \label{fig:training}
 \end{figure}
 
@@ -216,7 +216,7 @@ The photogrammetry-realism augmentation used in the latest run was retained from
 
 The MLP edge-affinity baseline was retrained on the 150-fragment dataset for the same 24 epochs used by EdgeConv. It uses the same saved edge geometry features but does not use an EdgeConv graph encoder. Its training loss decreased from 0.5524 at epoch 1 to 0.5363 at epoch 24, and validation balanced accuracy at a fixed 0.5 edge threshold stayed near 0.736. This weaker learning curve is consistent with the idea that graph-context encoding matters for local boundary decisions, even when downstream P80 can be partially recovered by threshold calibration.
 
-The downstream connected-component calibration remained difficult. The validation sweep selected the EdgeConv post-split variant at threshold 0.997 for the transfer setting used in the previous EdgeConv-only evaluation. On the 20 held-out test scenes, this setting produced a mean absolute P80 error of 19.04\%, a median absolute P80 error of 18.36\%, and a mean noise fraction of 0.603. Raw EdgeConv components gave 20.82\% mean absolute P80 error. Absorption reduced the noise fraction to approximately 0.506 but worsened P80 error in this run.
+The downstream connected-component calibration remained difficult but improved after the high-threshold sweep was extended above 0.999. Validation selected the EdgeConv post-split variant at threshold 0.9995. On the 20 held-out test scenes, this setting produced a mean absolute P80 error of 12.40\%, a median absolute P80 error of 13.32\%, and a mean noise fraction of 0.831. Raw EdgeConv components gave 12.90\% mean absolute P80 error. Absorption reduced the noise fraction to approximately 0.694 but worsened P80 error in this run.
 
 \begin{table}[t]
 \centering
@@ -229,10 +229,10 @@ Variant & Threshold & Mean abs. P80 error (\%) & Mean NMI & Mean ARI & Noise fra
 \midrule
 Post split & 0.999 & 16.69 & 0.443 & 0.0235 & 0.648 \\
 Post split & 0.998 & 17.85 & 0.479 & 0.0309 & 0.615 \\
-Post split & 0.997 & 18.60 & 0.501 & 0.0366 & 0.594 \\
+Post split & 0.9995 & 12.84 & 0.291 & 0.0035 & 0.780 \\
 Post split & 0.996 & 19.85 & 0.517 & 0.0412 & 0.578 \\
-Raw EdgeConv & 0.997 & 20.63 & 0.501 & 0.0376 & 0.594 \\
-Absorb + post split & 0.997 & 23.22 & 0.605 & 0.0783 & 0.499 \\
+Raw EdgeConv & 0.9995 & 14.47 & 0.290 & 0.0035 & 0.780 \\
+Absorb + post split & 0.9995 & 17.41 & 0.407 & 0.0214 & 0.694 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -247,16 +247,16 @@ Absorb + post split & 0.997 & 23.22 & 0.605 & 0.0783 & 0.499 \\
 \toprule
 Variant & Threshold & Mean abs. P80 error (\%) & Median abs. P80 error (\%) & Mean NMI & Mean ARI & Noise fraction \\
 \midrule
-EdgeConv post split & 0.997 & 19.04 & 18.36 & 0.492 & 0.0323 & 0.603 \\
-EdgeConv raw & 0.997 & 20.82 & 19.42 & 0.492 & 0.0340 & 0.603 \\
-EdgeConv absorb + post split & 0.997 & 21.84 & 21.40 & 0.597 & 0.0705 & 0.506 \\
-EdgeConv absorb & 0.997 & 23.45 & 21.40 & 0.597 & 0.0732 & 0.506 \\
+EdgeConv post split & 0.9995 & 12.40 & 13.32 & 0.229 & 0.0004 & 0.831 \\
+EdgeConv raw & 0.9995 & 12.90 & 13.32 & 0.230 & 0.0006 & 0.831 \\
+EdgeConv absorb + post split & 0.9995 & 17.41 & 16.56 & 0.407 & 0.0214 & 0.694 \\
+EdgeConv absorb & 0.9995 & 19.85 & 17.11 & 0.408 & 0.0230 & 0.694 \\
 \bottomrule
 \end{tabular}
 }
 \end{table}
 
-Other models were then evaluated on the same latest 150-fragment dataset. The MLP affinity model was trained for 24 epochs; DBSCAN, normal/curvature region growing, and the hand-crafted graph threshold do not have epochs, so their hyperparameters were selected on the 20 validation scenes and then frozen on the 20 held-out test scenes. This comparison changes the interpretation of the benchmark: the hand-crafted graph threshold achieved the lowest P80 MAE, but it did so with high noise fraction and weak ARI, so it is better read as a P80-oriented proxy rule than as a fragment segmentation model.
+Other models were then evaluated on the same latest 150-fragment dataset. The MLP affinity model was trained for 24 epochs; DBSCAN, normal/curvature region growing, and the hand-crafted graph threshold do not have epochs, so their hyperparameters were selected on the 20 validation scenes and then frozen on the 20 held-out test scenes. This comparison changes the interpretation of the benchmark: the fine-threshold EdgeConv post-split setting achieved the lowest P80 MAE, but it did so with high noise fraction and weak ARI, so it is better read as a P80-oriented proxy setting than as clean fragment segmentation.
 
 \begin{table}[t]
 \centering
@@ -268,10 +268,10 @@ Other models were then evaluated on the same latest 150-fragment dataset. The ML
 \toprule
 Method & Setting & Mean abs. P80 error (\%) & Median abs. P80 error (\%) & Mean NMI & Mean ARI & Noise fraction \\
 \midrule
+EdgeConv post split & $\tau=0.9995$ & 12.40 & 13.32 & 0.229 & 0.0004 & 0.831 \\
 Graph threshold & $d=0.070,z=0.040,c=0.050,\tau=0.85$ & 14.37 & 12.74 & 0.379 & 0.0049 & 0.694 \\
 MLP affinity & $\tau=0.999$ & 16.15 & 14.64 & 0.123 & -0.0057 & 0.908 \\
 DBSCAN & $\epsilon=0.025$, min=6, $z_w=1.00$ & 18.99 & 15.31 & 0.586 & 0.0386 & 0.423 \\
-EdgeConv post split & $\tau=0.997$ & 19.04 & 18.36 & 0.492 & 0.0323 & 0.603 \\
 Region growing & $r=0.035,a=0.100,c=0.035,z=0.035$ & 116.01 & 105.13 & 0.751 & 0.3247 & 0.195 \\
 \bottomrule
 \end{tabular}
@@ -295,9 +295,9 @@ Region growing & $r=0.035,a=0.100,c=0.035,z=0.035$ & 116.01 & 105.13 & 0.751 & 0
 \FloatBarrier
 
 \section{Discussion}
-The result should be read carefully because the latest 150-fragment comparison separates PSD proxy accuracy from fragment instance quality. The hand-crafted graph-threshold rule achieved the lowest held-out mean absolute P80 error, 14.37\%, but it also produced a high noise fraction of 0.694 and very low ARI. It is therefore a useful P80-oriented engineering rule, not evidence of clean fragment segmentation. Conversely, region growing produced the strongest NMI and ARI among the non-neural baselines but over-merged visible surfaces so severely that P80 error exceeded 100\%. This confirms that instance-style metrics and PSD/P80 metrics can disagree.
+The result should be read carefully because the latest 150-fragment comparison separates PSD proxy accuracy from fragment instance quality. The fine-threshold EdgeConv post-split setting achieved the lowest held-out mean absolute P80 error, 12.40\%, but it also produced a very high noise fraction of 0.831 and weak ARI. It is therefore a useful P80-oriented calibration result, not evidence of clean fragment segmentation. Conversely, region growing produced the strongest NMI and ARI among the non-neural baselines but over-merged visible surfaces so severely that P80 error exceeded 100\%. This confirms that instance-style metrics and PSD/P80 metrics can disagree.
 
-EdgeConv remains valuable, but its role is more specific than a simple winner-takes-all result. The model learned same-fragment edge affinity clearly, reaching validation AP of 0.9313, and it provides a transferable graph-learning baseline for arbitrary fragment IDs. However, its post-split connected-component calibration produced 19.04\% held-out P80 error, slightly worse than the calibrated graph-threshold and MLP baselines in this run. The main weakness is therefore not only edge learning; it is the conversion from edge probabilities to PSD-relevant components.
+EdgeConv remains valuable, but its role is more specific than a simple winner-takes-all result. The model learned same-fragment edge affinity clearly, reaching validation AP of 0.9208 in the 12-epoch calibration run, and it provides a transferable graph-learning baseline for arbitrary fragment IDs. Its post-split connected-component calibration produced 12.40\% held-out P80 error, outperforming the calibrated graph-threshold baseline on P80. The main weakness is therefore not only edge learning; it is the conversion from edge probabilities to PSD-relevant components without creating excessive noise.
 
 The MLP affinity result supports the need for graph context. It was trained for the same 24 epochs on the same latest split but showed a weak validation learning curve and very high test noise fraction. DBSCAN was competitive in P80 and had lower noise than EdgeConv, but its behaviour is controlled by a fixed density radius and is expected to be sensitive to point density and scale. These comparisons justify reporting EdgeConv alongside simpler baselines rather than presenting it as an already solved operational model.
 
@@ -312,7 +312,7 @@ The synthetic piles also remain simplified. The production preset was selected b
 The accompanying repository includes source code, manuscript source, figure assets, scene index, training history, validation threshold summaries, and held-out test summaries. The full `.npz` scene files and trained checkpoint are treated as generated artifacts because they can be regenerated from the provided scripts. The intended production command regenerates 100 no-boundary exterior scenes with 150 requested fragments, 800 DEM-relaxation steps, 30,000 requested surface samples per scene, and four CPU workers.
 
 \section{Conclusion}
-The manuscript reframes the project as a complete synthetic exterior rockpile benchmark rather than a short model report. Synthetic fragments are generated with known identity and volume, arranged into labelled rockpiles, converted to exterior-only point clouds, and used to train or calibrate several surface-clustering methods. The latest 100-scene, 150-fragment comparison shows that P80 proxy recovery and clean fragment instance segmentation are different objectives. A calibrated graph-threshold rule achieved the lowest held-out mean absolute P80 error, 14.37\%, while EdgeConv learned edge affinity well but reached 19.04\% P80 error after connected-component post-processing. The next step is therefore not simply more data or longer training; it is better graph partitioning, post-processing, and field validation for PSD-relevant exterior surface clusters.
+The manuscript reframes the project as a complete synthetic exterior rockpile benchmark rather than a short model report. Synthetic fragments are generated with known identity and volume, arranged into labelled rockpiles, converted to exterior-only point clouds, and used to train or calibrate several surface-clustering methods. The latest 100-scene, 150-fragment comparison shows that P80 proxy recovery and clean fragment instance segmentation are different objectives. A fine-threshold EdgeConv post-split setting achieved the lowest held-out mean absolute P80 error, 12.40\%, while the calibrated graph-threshold baseline reached 14.37\%. The next step is therefore not simply more data or longer training; it is better graph partitioning, post-processing, and field validation for PSD-relevant exterior surface clusters without excessive noise.
 
 \section*{Acknowledgments}
 During preparation of this manuscript, the author used OpenAI Codex for coding, formatting, and drafting assistance. The author reviewed and edited the output and takes responsibility for the manuscript.
