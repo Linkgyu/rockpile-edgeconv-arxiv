@@ -24,4 +24,5 @@ manuscript/*.synctex.gz
 
 # Local manuscript QA artifacts.
 manuscript/rendered/
+manuscript/rendered_*/
 scratch_*
