@@ -38,6 +38,11 @@ POSTPROCESS_KWARGS = {
     "max_markers_per_cluster": 12,
 }
 
+ACCEPTED_SCAN_FILTER_VERSIONS = {
+    "angular_nearest_plus_xy_height_envelope",
+    "angular_nearest_plus_xy_height_envelope_preserve_side_visible",
+}
+
 ABSORB_KWARGS = {
     "threshold_offset": 0.035,
     "min_absorb_threshold": 0.88,
@@ -260,7 +265,7 @@ def train_model(args: argparse.Namespace, device: torch.device, train_rows: pd.D
             "model_state_dict": best_state,
             "best_epoch": best_epoch,
             "best_val_ap": best_val_ap,
-            "scan_filter_version": "angular_nearest_plus_xy_height_envelope",
+            "scan_filter_version": "angular_nearest_plus_xy_height_envelope_preserve_side_visible",
             "training_args": training_args,
         },
         OUT_MODELS / "edgeconv_affinity.pt",
@@ -513,7 +518,7 @@ def main() -> None:
     OUT_FIGURES.mkdir(parents=True, exist_ok=True)
 
     index = load_scene_index(args.scene_index)
-    if "scan_filter_version" not in index.columns or not index["scan_filter_version"].eq("angular_nearest_plus_xy_height_envelope").all():
+    if "scan_filter_version" not in index.columns or not index["scan_filter_version"].isin(ACCEPTED_SCAN_FILTER_VERSIONS).all():
         raise SystemExit("Scene index is not the regenerated surface-envelope dataset. Regenerate it before retraining.")
 
     train_rows = index[index["split"] == "train"].reset_index(drop=True)
@@ -583,7 +588,7 @@ def main() -> None:
     write_test_error_histogram(test_results, selected_variant)
 
     metadata = {
-        "scan_filter_version": "angular_nearest_plus_xy_height_envelope",
+        "scan_filter_version": "angular_nearest_plus_xy_height_envelope_preserve_side_visible",
         "selected_variant": selected_variant,
         "selected_threshold": selected_threshold,
         "selected_bridge_probability": selected_bridge_probability,

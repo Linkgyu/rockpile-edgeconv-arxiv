@@ -65,3 +65,11 @@ error below the hand-crafted graph baseline, but it also produces a high noise
 fraction on test scenes. This repository should therefore be treated as a
 controlled synthetic benchmark and a reproducible baseline, not as a field-ready
 fragmentation monitoring system.
+
+## Exterior Filter Update
+
+The exterior scan filter was updated after diagnosing that the previous global
+top-envelope cleanup removed visible side/slope points. The new
+`preserve_side_visible` mode keeps points seen from side viewpoints and applies
+the height-envelope cleanup only as an overhead/interior safeguard. See
+`results/figures/exterior_filter_diagnostic_scene000.png` for the comparison.

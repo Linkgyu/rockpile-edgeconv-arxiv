@@ -50,21 +50,36 @@ def exterior_points_from_viewpoints(
     labels: np.ndarray,
     viewpoint_xyz_list: np.ndarray,
     angular_resolution_deg: float = 0.22,
+    range_tolerance_m: float = 0.0,
     height_envelope_grid_m: float | None = 0.035,
     height_envelope_tolerance_m: float = 0.030,
+    height_envelope_mode: str = "preserve_side_visible",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Keep points visible from at least one exterior viewpoint.
 
     For each viewpoint, points are assigned to angular azimuth/elevation bins.
-    The closest point in each bin is retained. The union over viewpoints is then
-    optionally filtered to the upper XY height envelope so interior/contact
-    samples do not survive as pseudo-visible exterior points.
+    The closest point in each bin is retained. If ``range_tolerance_m`` is
+    positive, points within that range behind the nearest point in the same bin
+    are also retained, approximating finite scan footprint thickness.
+
+    The previous global XY height-envelope cleanup was too aggressive for
+    side-visible pile surfaces: it retained only the highest point in each plan
+    cell and could erase physically visible slope/side points. The default
+    ``preserve_side_visible`` mode therefore applies the height envelope only as
+    an overhead/interior cleanup while always keeping points seen from side
+    viewpoints.
     """
 
     points = np.asarray(points_xyz, dtype=float)
     labels = np.asarray(labels)
     viewpoints = np.asarray(viewpoint_xyz_list, dtype=float)
-    visible = set()
+    if height_envelope_mode not in {"preserve_side_visible", "top_only", "none"}:
+        raise ValueError("height_envelope_mode must be 'preserve_side_visible', 'top_only', or 'none'")
+
+    visible_mask = np.zeros(len(points), dtype=bool)
+    side_visible_mask = np.zeros(len(points), dtype=bool)
+    xy_span = points[:, :2].max(axis=0) - points[:, :2].min(axis=0)
+    top_like_z = float(points[:, 2].max() + 0.25 * max(float(xy_span.max()), 1e-6))
 
     for vp in viewpoints:
         vectors = points - vp[None, :]
@@ -77,13 +92,41 @@ def exterior_points_from_viewpoints(
         key = az_bin * 1_000_000 + el_bin
         order = np.lexsort((ranges, key))
         sorted_key = key[order]
-        first = np.r_[True, sorted_key[1:] != sorted_key[:-1]]
-        visible.update(order[first].tolist())
+        keep_for_view = np.zeros(len(points), dtype=bool)
+        if range_tolerance_m <= 0:
+            first = np.r_[True, sorted_key[1:] != sorted_key[:-1]]
+            keep_for_view[order[first]] = True
+        else:
+            start = 0
+            while start < len(order):
+                end = start + 1
+                while end < len(order) and sorted_key[end] == sorted_key[start]:
+                    end += 1
+                idx = order[start:end]
+                r_min = float(ranges[idx].min())
+                keep_for_view[idx[ranges[idx] <= r_min + float(range_tolerance_m)]] = True
+                start = end
 
-    visible_idx = np.array(sorted(visible), dtype=np.int64)
+        visible_mask |= keep_for_view
+        if float(vp[2]) < top_like_z:
+            side_visible_mask |= keep_for_view
+
+    visible_idx = np.flatnonzero(visible_mask).astype(np.int64)
     exterior_points = points[visible_idx]
     exterior_labels = labels[visible_idx]
-    if height_envelope_grid_m is not None:
+    if height_envelope_grid_m is not None and height_envelope_mode != "none":
+        if height_envelope_mode == "preserve_side_visible":
+            envelope_points, envelope_labels, envelope_source = keep_xy_height_envelope(
+                exterior_points,
+                exterior_labels,
+                source_indices=visible_idx,
+                grid_resolution_m=height_envelope_grid_m,
+                z_tolerance_m=height_envelope_tolerance_m,
+            )
+            envelope_keep = np.zeros(len(points), dtype=bool)
+            envelope_keep[envelope_source] = True
+            final_idx = visible_idx[side_visible_mask[visible_idx] | envelope_keep[visible_idx]]
+            return points[final_idx], labels[final_idx], final_idx
         return keep_xy_height_envelope(
             exterior_points,
             exterior_labels,
