@@ -267,13 +267,15 @@ def build_manuscript():
         "methods. A graph EdgeConv model predicts whether neighbouring exterior points belong to the same fragment, and "
         "thresholded edge affinities are converted into connected components and visible-surface particle-size proxies. "
         "The same 100 scenes, each containing 150 fragments, were used for all methods with a 60:20:20 train, validation, "
-        "and test split. The latest held-out comparison showed that EdgeConv with fine high-threshold post-splitting gave "
-        "the lowest mean absolute eighty per cent passing-size error, 12.40 per cent, compared with 14.37 per cent for "
-        "the calibrated graph-threshold rule. This gain came with a high noise fraction, so the results show that "
-        "synthetic exterior piles can separate two questions that are often conflated in rockpile "
-        "monitoring: whether visible fragments are cleanly segmented, and whether the resulting surface clusters recover "
-        "a useful size-distribution proxy. The benchmark is intended as a reproducible pre-field testbed rather than a "
-        "replacement for mine-site calibration."
+        "and test split. The revised dataset applies multi-view Hidden Point Removal to the stored fragment poses, producing "
+        "a stricter photogrammetry-like exterior shell. EdgeConv learned strong same-fragment affinity on this target, with "
+        "validation average precision increasing to 0.962 after 24 epochs. However, the selected EdgeConv hybrid component "
+        "rule gave a held-out mean absolute eighty per cent passing-size error of 29.26 per cent, while the MLP affinity, "
+        "DBSCAN, and graph-threshold baselines gave 13.39, 18.70, and 19.03 per cent, respectively. EdgeConv produced much "
+        "stronger instance diagnostics than the MLP baseline, but the size proxy was worse. The result shows that synthetic "
+        "exterior piles can separate two questions that are often conflated in rockpile monitoring: whether visible fragments "
+        "are cleanly segmented, and whether the resulting surface clusters recover a useful size-distribution proxy. The "
+        "benchmark is intended as a reproducible pre-field testbed rather than a replacement for mine-site calibration."
     )
     p(doc, abstract)
     p(doc, "Keywords: fragmentation monitoring; rockpile; point cloud segmentation; synthetic benchmark; EdgeConv; mine-to-mill")
@@ -387,8 +389,9 @@ def build_manuscript():
         "After placement, source fragment meshes were reconstructed at their stored scene centres and orientations. This "
         "mesh-level reconstruction was used for visual audit and for confirming that fragment identity had not been lost "
         "during scene construction. The learning data were not sampled from arbitrary internal surfaces. Instead, the full "
-        "mesh scene was converted into an exterior scan proxy using viewpoint-based visibility followed by a plan-view "
-        "height-envelope filter."
+        "mesh scene was converted into an exterior scan proxy using multi-view Hidden Point Removal. This change preserves "
+        "the stored rockpile placement while replacing the earlier plan-view height-envelope filter, which could remove "
+        "legitimate side-visible exterior points."
     ))
     add_image(doc, "rockpile_mesh_exterior_scene000.png", 15.8, "Scene 000 mesh-level pile visualisation and exterior-only point-cloud target with retained fragment labels", "Figure 3")
     add_image(doc, "dem_noboundary_relax150_scene000_preview.png", 14.8, "Representative exterior point cloud from the no-boundary 150-fragment dataset", "Figure 4")
@@ -399,8 +402,9 @@ def build_manuscript():
         "Exterior scan and graph construction settings used for the learning target",
         [
             ["Stage", "Setting"],
-            ["Surface visibility", "Multi-view nearest-surface retention"],
-            ["Envelope filtering", "Plan-view height filter retaining the upper exterior envelope"],
+            ["Surface visibility", "Hidden Point Removal using spherical flipping and convex-hull visibility"],
+            ["Viewpoints", "Eight side-ring viewpoints plus one overhead viewpoint"],
+            ["Envelope filtering", "None in the production HPR run; side-visible exterior points are retained"],
             ["Label transfer", "Each retained point stores the source fragment identity"],
             ["Graph construction", "Local point graph built from exterior samples only"],
             ["Learning target", "Binary same-fragment edge affinity"],
@@ -412,9 +416,12 @@ def build_manuscript():
     p(doc, (
         "The exterior filter is deliberately conservative. A full synthetic pile includes contact patches and interior "
         "faces that cannot be observed from a field scan. Training on those points would make the benchmark easier but "
-        "less relevant. The exterior-only construction therefore sacrifices some label completeness to preserve the "
-        "visibility constraint."
+        "less relevant. The HPR exterior-only construction therefore sacrifices some label completeness to preserve the "
+        "visibility constraint. Across the 100 HPR-refiltered scenes, the mean retained fragment count was 141.89 out of "
+        "150 requested fragments, the mean exterior point count was 6975.05, and the mean local-graph positive edge "
+        "fraction was 0.924."
     ))
+    add_image(doc, "exterior_filter_section_scan_scene000.png", 15.8, "Exterior-only HPR diagnostic for scene 000. The half-section shows that hidden interior samples are removed while the retained scan follows the visible outside shell", "Figure 5")
 
     heading(doc, "Edge-affinity learning and baseline methods")
     heading(doc, "Why EdgeConv was used", 2)
@@ -426,7 +433,7 @@ def build_manuscript():
         "separates neighbouring stones. EdgeConv instead forms local graph features and updates point representations "
         "from neighbouring relationships, matching the edge-affinity formulation of the benchmark."
     ))
-    add_image(doc, "edge_affinity_schematic.png", 15.0, "Edge-affinity formulation from exterior points to graph edges, thresholded components, and size-distribution proxies", "Figure 5")
+    add_image(doc, "edge_affinity_schematic.png", 15.0, "Edge-affinity formulation from exterior points to graph edges, thresholded components, and size-distribution proxies", "Figure 6")
 
     table_from_rows(
         doc,
@@ -472,19 +479,19 @@ def build_manuscript():
 
     heading(doc, "Results")
     p(doc, (
-        "The 12-epoch EdgeConv calibration run showed improving training loss and high validation average precision, confirming that "
-        "the model learned informative same-fragment edge affinities. The remaining difficulty was calibration of the "
-        "affinity threshold and post-processing for realistic exterior piles, where overly strict thresholds split "
-        "visible fragments into too many components."
+        "The 24-epoch EdgeConv calibration run showed steadily decreasing training loss and increasing validation average "
+        "precision, confirming that the model learned informative same-fragment edge affinities on the HPR exterior target. "
+        "Validation average precision rose from 0.905 at epoch 1 to 0.962 at epoch 24. The remaining difficulty was not "
+        "edge learning but calibration of the affinity threshold, component merging, and the surface-cluster-to-P80 proxy."
     ))
-    add_image(doc, "02_edgeconv_training_curve.png", 14.5, "Training loss and validation average precision for the 12-epoch EdgeConv edge-affinity calibration run", "Figure 6")
+    add_image(doc, "02_edgeconv_training_curve.png", 14.5, "Training loss and validation average precision for the 24-epoch EdgeConv edge-affinity calibration run on the HPR exterior dataset", "Figure 7")
 
     edge = read_csv(TABLE_DIR / "edgeconv_test_summary.csv")
-    edge_rows = [["Variant", "Threshold", "Mean absolute P80 error (%)", "Median absolute P80 error (%)", "Mean NMI", "Mean ARI", "Noise"]]
+    edge_rows = [["Variant", "Thresh.", "Mean absolute P80 error (%)", "Median absolute P80 error (%)", "Mean NMI", "Mean ARI", "Noise"]]
     for r in edge:
         edge_rows.append([
             r["variant"].replace("_", " "),
-            fmt(r["threshold"], 3),
+            fmt(r["threshold"], 4),
             fmt(r["mean_abs_P80_error_pct"]),
             fmt(r["median_abs_P80_error_pct"]),
             fmt(r["mean_NMI"], 3),
@@ -502,8 +509,11 @@ def build_manuscript():
     comp = read_csv(TABLE_DIR / "model_comparison_150frag_test_summary.csv")
     comp_rows = [["Method", "Selected setting", "Mean absolute P80 error (%)", "Median absolute P80 error (%)", "Mean NMI", "Mean ARI", "Noise"]]
     for r in comp:
+        method = r["method"]
+        if method.startswith("EdgeConv"):
+            method = "EdgeConv hybrid bridge"
         comp_rows.append([
-            r["method"],
+            method,
             r["setting"],
             fmt(r["mean_abs_P80_error_pct"]),
             fmt(r["median_abs_P80_error_pct"]),
@@ -518,17 +528,18 @@ def build_manuscript():
         [1500, 2600, 1300, 1300, 900, 900, 860],
         "Table 6",
     )
-    add_image(doc, "model_comparison_150frag_p80.png", 14.0, "Held-out test mean absolute P80 error for the latest 150-fragment comparison", "Figure 7")
-    add_image(doc, "03_edgeconv_test_p80_error_histogram.png", 13.0, "Held-out test distribution of absolute P80 error for the validation-selected EdgeConv post-split setting", "Figure 8")
+    add_image(doc, "model_comparison_150frag_p80.png", 14.0, "Held-out test mean absolute P80 error for the HPR exterior 150-fragment comparison", "Figure 8")
+    add_image(doc, "03_edgeconv_test_p80_error_histogram.png", 13.0, "Held-out test distribution of absolute P80 error for the validation-selected EdgeConv hybrid setting", "Figure 9")
 
     heading(doc, "Discussion")
     p(doc, (
         "The results suggest that the benchmark is diagnosing two separate behaviours. EdgeConv learns useful edge affinity, "
         "as indicated by the training curve and validation average precision, but the final size proxy is sensitive to the "
-        "probability threshold and component rules. In the latest realistic-pile setting, a fine high-threshold sweep let "
-        "EdgeConv outperform the calibrated graph-threshold rule on P80 error. However, this setting also cut the surface "
-        "into many small components and produced a high noise fraction, so it should be interpreted as P80-oriented "
-        "calibration rather than clean fragment segmentation."
+        "probability threshold, component rules, and how visible-surface clusters are converted into a volume-weighted PSD "
+        "proxy. In the HPR exterior run, EdgeConv achieved substantially stronger instance diagnostics than the MLP baseline "
+        "(mean NMI 0.754 and ARI 0.349 for the selected EdgeConv hybrid setting, compared with NMI 0.134 and negative ARI "
+        "for MLP). Nevertheless, MLP produced the lowest held-out P80 error because its very noisy, coarse components "
+        "happened to preserve the P80 proxy better."
     ))
     p(doc, (
         "This finding is operationally important. A segmentation model should not be judged only by edge average precision "
@@ -538,11 +549,12 @@ def build_manuscript():
         "size-proxy error together."
     ))
     p(doc, (
-        "The baseline comparison also shows why the graph formulation remains useful. Density clustering and simple region "
-        "growing can capture some surface continuity, but they are brittle when point density, local slopes, and fragment "
-        "spacing vary. The multilayer perceptron edge-affinity baseline lacks dynamic neighbourhood feature aggregation. "
-        "EdgeConv is therefore retained as the main learning model because it is the most direct learned analogue of the "
-        "local graph decision required by the problem, even though its threshold and merge rules still need improvement."
+        "The baseline comparison also shows why the graph formulation remains useful even when the P80 ranking is not led "
+        "by EdgeConv. Density clustering and simple region growing can capture some surface continuity, but they are brittle "
+        "when point density, local slopes, and fragment spacing vary. The multilayer perceptron edge-affinity baseline lacks "
+        "dynamic neighbourhood feature aggregation and produced a high noise fraction of 0.887. EdgeConv is therefore "
+        "retained as the main learning model for fragment-aware exterior segmentation, while the P80 result identifies the "
+        "next bottleneck: PSD-aware component calibration."
     ))
 
     heading(doc, "Limitations and field validation")
@@ -564,10 +576,11 @@ def build_manuscript():
         "A labelled synthetic exterior point-cloud benchmark was developed for rockpile fragmentation monitoring. The "
         "workflow generates individual fragment meshes, constructs 150-fragment rockpile scenes, filters the full geometry "
         "to exterior-only scan proxies, and evaluates same-fragment edge-affinity learning against multiple baselines. "
-        "The latest 100-scene comparison showed that the graph-threshold baseline achieved the lowest held-out mean "
-        "absolute passing-size error, while EdgeConv learned strong local affinity but remained sensitive to threshold and "
-        "post-processing calibration. The benchmark therefore provides a useful pre-field environment for separating "
-        "model learning, component formation, and visible-surface size-proxy estimation."
+        "The latest HPR-refiltered 100-scene comparison showed that the MLP affinity baseline achieved the lowest held-out "
+        "mean absolute passing-size error, while EdgeConv learned stronger local affinity and produced better instance "
+        "diagnostics but remained sensitive to threshold, merging, and PSD-proxy calibration. The benchmark therefore "
+        "provides a useful pre-field environment for separating model learning, component formation, and visible-surface "
+        "size-proxy estimation."
     ))
 
     heading(doc, "Acknowledgements")
@@ -638,15 +651,16 @@ def build_cover_letter():
     p(doc, (
         "The manuscript is aligned with the Journal's mining, blasting, digitalisation, and mine-to-mill interests. It "
         "presents a reproducible synthetic benchmark in which rock-like fragments are generated first, assembled into "
-        "labelled rockpile scenes, converted to exterior-only point-cloud scan proxies, and used to evaluate EdgeConv "
-        "edge-affinity learning and several baseline clustering methods for visible-surface size-distribution proxy "
+        "labelled rockpile scenes, converted to exterior-only point-cloud scan proxies using multi-view Hidden Point "
+        "Removal, and used to evaluate EdgeConv edge-affinity learning and several baseline clustering methods for visible-surface size-distribution proxy "
         "estimation."
     ))
     p(doc, (
         "The main novelty is the separation of labelled pile construction, exterior-only scan visibility, and final "
         "particle-size proxy recovery. The latest 100-scene, 150-fragment benchmark uses a 60:20:20 train, validation, "
         "and test split and compares EdgeConv with graph-threshold, density, region-growing, and multilayer perceptron "
-        "edge-affinity baselines."
+        "edge-affinity baselines. The revised HPR experiment shows that EdgeConv learns stronger fragment-aware affinity "
+        "than the shallow baseline, but that P80 proxy recovery still requires PSD-aware component calibration."
     ))
     p(doc, (
         "The work is original, has not been published previously, and is not under consideration by another journal. The "

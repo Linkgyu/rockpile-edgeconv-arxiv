@@ -1,0 +1,26 @@
+{
+  "scan_filter_version": "hpr_multiview_exterior",
+  "selected_variant": "edgeconv_hybrid_bridge_absorb_post_split",
+  "selected_threshold": 0.9999,
+  "selected_bridge_probability": 0.5,
+  "selected_graph_threshold": 0.85,
+  "best_epoch": 24,
+  "best_val_average_precision": 0.9618933012548679,
+  "postprocess_kwargs": {
+    "max_cluster_points": 240,
+    "grid_resolution_m": 0.03,
+    "min_peak_distance_m": 0.1,
+    "peak_prominence_m": 0.012,
+    "min_child_points": 14,
+    "max_markers_per_cluster": 12
+  },
+  "absorb_kwargs": {
+    "threshold_offset": 0.035,
+    "min_absorb_threshold": 0.88,
+    "max_passes": 3
+  },
+  "photogrammetry_realism_strength": 0.75,
+  "scene_index": "outputs\\tables\\dem_noboundary_relax150_100scene_hpr_index.csv",
+  "noise_penalty": 0.0,
+  "max_noise_fraction": 1.0
+}

@@ -259,6 +259,8 @@ def plot_comparison(summary: pd.DataFrame, out_path: Path) -> None:
 
 
 def main() -> None:
+    global OUT_TABLES, OUT_FIGURES
+
     parser = argparse.ArgumentParser(description="Train/evaluate non-EdgeConv baselines on the latest 150-fragment dataset.")
     parser.add_argument("--scene-index", type=Path, default=OUT_TABLES / "dem_noboundary_relax150_100scene_index.csv")
     parser.add_argument("--epochs", type=int, default=24)
@@ -270,9 +272,22 @@ def main() -> None:
     parser.add_argument("--val-metric-scenes", type=int, default=12)
     parser.add_argument("--photogrammetry-realism", type=float, default=0.75)
     parser.add_argument("--noise-penalty", type=float, default=0.10)
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default="",
+        help="Optional output namespace under outputs/runs/<run-name>, matching the EdgeConv run layout.",
+    )
     args = parser.parse_args()
 
     set_seed(args.seed)
+    if args.run_name:
+        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in args.run_name).strip("_")
+        if not safe_name:
+            raise SystemExit("--run-name did not contain any usable characters")
+        run_root = ROOT / "outputs" / "runs" / safe_name
+        OUT_TABLES = run_root / "tables"
+        OUT_FIGURES = run_root / "figures"
     OUT_TABLES.mkdir(parents=True, exist_ok=True)
     OUT_FIGURES.mkdir(parents=True, exist_ok=True)
 
@@ -327,8 +342,12 @@ def main() -> None:
         edgeconv_summary = pd.DataFrame(
             [
                 {
-                    "method": "EdgeConv post split",
-                    "setting": "threshold=0.997",
+                    "method": f"EdgeConv {selected['variant'].iloc[0]}",
+                    "setting": (
+                        f"threshold={float(selected['threshold'].iloc[0]):.4f},"
+                        f"bridge={float(selected['bridge_probability'].iloc[0]):.2f},"
+                        f"graph={float(selected['graph_threshold'].iloc[0]):.2f}"
+                    ),
                     "n_scenes": int(selected["n_scenes"].iloc[0]),
                     "bias_P80_error_pct": float("nan"),
                     "mean_abs_P80_error_pct": float(selected["mean_abs_P80_error_pct"].iloc[0]),
