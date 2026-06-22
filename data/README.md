@@ -8,15 +8,15 @@ large. The committed files include:
   `results/tables/dem_noboundary_relax150_100scene_index.csv`
 - training history, validation threshold summary, and held-out test summary
 - scripts needed to regenerate scenes and retrain the EdgeConv model
-- an exterior-filter diagnostic:
-  `results/figures/exterior_filter_diagnostic_scene000.png` and
+- exterior-filter diagnostics:
+  `results/figures/exterior_filter_diagnostic_scene000.png`,
+  `results/figures/exterior_filter_section_scan_scene000.png`, and
   `results/tables/exterior_filter_diagnostic_scene000.csv`
 
-The exterior filter now preserves points seen from side viewpoints before
-applying the plan-view height-envelope cleanup. The previous top-only envelope
-could remove physically visible slope/side points and even drop visible
-fragments. Newly generated scenes are marked with
-`angular_nearest_plus_xy_height_envelope_preserve_side_visible`.
+The exterior filter now uses a small angular depth-buffer neighbourhood to close
+sparse point-cloud pinholes that can otherwise retain hidden/interior fragment
+surfaces. Newly generated scenes are marked with
+`angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible`.
 
 To regenerate the dataset, place or generate the Synthetic_Rockpile fragment
 catalog and set the input paths if they differ from the author's workstation:

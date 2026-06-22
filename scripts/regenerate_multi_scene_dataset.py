@@ -32,7 +32,7 @@ TABLE_DIR = PROJECT_ROOT / "outputs" / "tables"
 N_FRAGMENTS_PER_SCENE = 220
 TOTAL_SURFACE_POINTS = 42_000
 BASE_SEED = 20260525
-FILTER_VERSION = "angular_nearest_plus_xy_height_envelope_preserve_side_visible"
+FILTER_VERSION = "angular_depthbuffer_plus_xy_height_envelope_preserve_side_visible"
 
 
 DEM_PRESETS = {
@@ -419,7 +419,8 @@ def generate_scene(
         full_labels,
         viewpoints,
         angular_resolution_deg=0.24,
-        range_tolerance_m=0.0,
+        range_tolerance_m=0.012,
+        occlusion_neighbor_bins=2,
         height_envelope_grid_m=0.035,
         height_envelope_tolerance_m=0.030,
         height_envelope_mode="preserve_side_visible",
@@ -462,7 +463,8 @@ def generate_scene(
         cone_base_radius_m=np.array([cone_geometry["base_radius_m"]]),
         cone_height_m=np.array([cone_geometry["pile_height_m"]]),
         angular_resolution_deg=np.array([0.24]),
-        range_tolerance_m=np.array([0.0]),
+        range_tolerance_m=np.array([0.012]),
+        occlusion_neighbor_bins=np.array([2]),
         height_envelope_grid_m=np.array([0.035]),
         height_envelope_tolerance_m=np.array([0.030]),
         height_envelope_mode=np.array(["preserve_side_visible"]),

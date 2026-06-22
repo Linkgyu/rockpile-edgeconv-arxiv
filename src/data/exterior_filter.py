@@ -51,6 +51,7 @@ def exterior_points_from_viewpoints(
     viewpoint_xyz_list: np.ndarray,
     angular_resolution_deg: float = 0.22,
     range_tolerance_m: float = 0.0,
+    occlusion_neighbor_bins: int = 0,
     height_envelope_grid_m: float | None = 0.035,
     height_envelope_tolerance_m: float = 0.030,
     height_envelope_mode: str = "preserve_side_visible",
@@ -58,9 +59,13 @@ def exterior_points_from_viewpoints(
     """Keep points visible from at least one exterior viewpoint.
 
     For each viewpoint, points are assigned to angular azimuth/elevation bins.
-    The closest point in each bin is retained. If ``range_tolerance_m`` is
-    positive, points within that range behind the nearest point in the same bin
-    are also retained, approximating finite scan footprint thickness.
+    The closest point in each bin is retained. ``occlusion_neighbor_bins`` makes
+    this a small depth-buffer neighbourhood instead of a single exact bin: a
+    point is hidden if a nearer point exists in its own or neighbouring angular
+    bins. This closes sparse point-cloud pinholes that otherwise let interior
+    fragment surfaces survive the visibility pass. If ``range_tolerance_m`` is
+    positive, points within that range behind the local nearest surface are also
+    retained, approximating finite scan footprint thickness.
 
     The previous global XY height-envelope cleanup was too aggressive for
     side-visible pile surfaces: it retained only the highest point in each plan
@@ -93,18 +98,36 @@ def exterior_points_from_viewpoints(
         order = np.lexsort((ranges, key))
         sorted_key = key[order]
         keep_for_view = np.zeros(len(points), dtype=bool)
-        if range_tolerance_m <= 0:
+        neighbor_bins = max(0, int(occlusion_neighbor_bins))
+        if range_tolerance_m <= 0 and neighbor_bins == 0:
             first = np.r_[True, sorted_key[1:] != sorted_key[:-1]]
             keep_for_view[order[first]] = True
         else:
+            min_range_by_bin: dict[tuple[int, int], float] = {}
             start = 0
             while start < len(order):
                 end = start + 1
                 while end < len(order) and sorted_key[end] == sorted_key[start]:
                     end += 1
                 idx = order[start:end]
-                r_min = float(ranges[idx].min())
-                keep_for_view[idx[ranges[idx] <= r_min + float(range_tolerance_m)]] = True
+                bin_key = (int(az_bin[idx[0]]), int(el_bin[idx[0]]))
+                min_range_by_bin[bin_key] = float(ranges[idx].min())
+                start = end
+            start = 0
+            while start < len(order):
+                end = start + 1
+                while end < len(order) and sorted_key[end] == sorted_key[start]:
+                    end += 1
+                idx = order[start:end]
+                az0 = int(az_bin[idx[0]])
+                el0 = int(el_bin[idx[0]])
+                local_min = np.inf
+                for daz in range(-neighbor_bins, neighbor_bins + 1):
+                    for dele in range(-neighbor_bins, neighbor_bins + 1):
+                        value = min_range_by_bin.get((az0 + daz, el0 + dele))
+                        if value is not None and value < local_min:
+                            local_min = value
+                keep_for_view[idx[ranges[idx] <= local_min + float(range_tolerance_m)]] = True
                 start = end
 
         visible_mask |= keep_for_view

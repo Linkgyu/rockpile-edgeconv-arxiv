@@ -60,6 +60,21 @@ def half_cut(points: np.ndarray, labels: np.ndarray, cut_x: float) -> tuple[np.n
     return points[keep], labels[keep]
 
 
+def section_slab(points: np.ndarray, labels: np.ndarray, cut_x: float, half_width: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    keep = np.abs(points[:, 0] - cut_x) <= half_width
+    return points[keep], labels[keep], np.flatnonzero(keep)
+
+
+def set_matched_2d_section_axes(ax, full_points: np.ndarray) -> None:
+    ax.set_xlabel("y [m]")
+    ax.set_ylabel("z [m]")
+    y = full_points[:, 1]
+    z = full_points[:, 2]
+    ax.set_xlim(float(y.min()) - 0.03, float(y.max()) + 0.03)
+    ax.set_ylim(max(0.0, float(z.min()) - 0.02), float(z.max()) + 0.08)
+    ax.grid(True, color="#D8DEE8", linewidth=0.8, alpha=0.8)
+
+
 def summarize(name: str, points: np.ndarray, labels: np.ndarray, full_labels: np.ndarray) -> dict:
     counts = pd.Series(labels).value_counts()
     full_counts = pd.Series(full_labels).value_counts()
@@ -86,6 +101,7 @@ def main() -> None:
     parser.add_argument("--total-surface-points", type=int, default=42000)
     parser.add_argument("--dem-preset", choices=sorted(DEM_PRESETS), default="noboundary_axis_clump_150_fast")
     parser.add_argument("--max-plot-points", type=int, default=9000)
+    parser.add_argument("--section-half-width", type=float, default=0.08)
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -126,6 +142,19 @@ def main() -> None:
         full_labels,
         viewpoints,
         angular_resolution_deg=0.24,
+        range_tolerance_m=0.012,
+        occlusion_neighbor_bins=2,
+        height_envelope_grid_m=0.035,
+        height_envelope_tolerance_m=0.030,
+        height_envelope_mode="preserve_side_visible",
+    )
+    exterior_points, exterior_labels, exterior_source_idx = exterior_points_from_viewpoints(
+        full_points,
+        full_labels,
+        viewpoints,
+        angular_resolution_deg=0.24,
+        range_tolerance_m=0.012,
+        occlusion_neighbor_bins=2,
         height_envelope_grid_m=0.035,
         height_envelope_tolerance_m=0.030,
         height_envelope_mode="preserve_side_visible",
@@ -136,7 +165,7 @@ def main() -> None:
             summarize("full sampled surface", full_points, full_labels, full_labels),
             summarize("viewpoint visible only", view_points, view_labels, full_labels),
             summarize("old top-only envelope", old_points, old_labels, full_labels),
-            summarize("new preserve-side envelope", new_points, new_labels, full_labels),
+            summarize("new depth-buffer exterior", new_points, new_labels, full_labels),
         ]
     )
     summary_path = TABLE_DIR / f"exterior_filter_diagnostic_scene{args.scene_id:03d}.csv"
@@ -146,7 +175,7 @@ def main() -> None:
         ("A. Full sampled surface", full_points, full_labels),
         ("B. Viewpoint visible", view_points, view_labels),
         ("C. Old top-only envelope", old_points, old_labels),
-        ("D. New preserve-side envelope", new_points, new_labels),
+        ("D. New depth-buffer exterior", new_points, new_labels),
     ]
     fig = plt.figure(figsize=(14, 10), dpi=170)
     for i, (title, points, labels) in enumerate(panels, start=1):
@@ -166,7 +195,7 @@ def main() -> None:
         ("A. Full sampled surface, half cut", full_points, full_labels),
         ("B. Viewpoint visible, half cut", view_points, view_labels),
         ("C. Old top-only envelope, half cut", old_points, old_labels),
-        ("D. New preserve-side envelope, half cut", new_points, new_labels),
+        ("D. New depth-buffer exterior, half cut", new_points, new_labels),
     ]
     fig = plt.figure(figsize=(14, 10), dpi=170)
     for i, (title, points, labels) in enumerate(section_panels, start=1):
@@ -183,9 +212,80 @@ def main() -> None:
     fig.savefig(section_fig_path, bbox_inches="tight")
     plt.close(fig)
 
+    retained_source_mask = np.zeros(len(full_points), dtype=bool)
+    retained_source_mask[exterior_source_idx] = True
+    full_sec, full_sec_labels, full_sec_idx = section_slab(full_points, full_labels, cut_x, args.section_half_width)
+    exterior_sec, exterior_sec_labels, _ = section_slab(exterior_points, exterior_labels, cut_x, args.section_half_width)
+    retained_sec = retained_source_mask[full_sec_idx]
+
+    fig = plt.figure(figsize=(12, 7.8), dpi=170)
+    ax_full = fig.add_subplot(2, 2, 1, projection="3d")
+    pts, labs = downsample(full_points, full_labels, args.max_plot_points, seed=201)
+    ax_full.scatter(pts[:, 0], pts[:, 1], pts[:, 2], c=label_colors(labs), s=1.1, alpha=0.60, linewidths=0)
+    ax_full.set_title("Original full labelled point cloud")
+    set_equal_3d(ax_full, full_points)
+
+    ax_ext = fig.add_subplot(2, 2, 2, projection="3d")
+    pts, labs = downsample(exterior_points, exterior_labels, args.max_plot_points, seed=202)
+    ax_ext.scatter(pts[:, 0], pts[:, 1], pts[:, 2], c=label_colors(labs), s=1.3, alpha=0.78, linewidths=0)
+    ax_ext.set_title("Exterior-only scan after occlusion filtering")
+    set_equal_3d(ax_ext, full_points)
+
+    ax_before = fig.add_subplot(2, 2, 3)
+    removed = ~retained_sec
+    ax_before.scatter(
+        full_sec[removed, 1],
+        full_sec[removed, 2],
+        s=1.6,
+        c="#D94A44",
+        alpha=0.58,
+        linewidths=0,
+        label="removed hidden/interior source samples",
+    )
+    ax_before.scatter(
+        full_sec[retained_sec, 1],
+        full_sec[retained_sec, 2],
+        s=2.0,
+        c="#4C5967",
+        alpha=0.62,
+        linewidths=0,
+        label="retained exterior samples",
+    )
+    ax_before.set_title(f"Half-cut y-z section before filtering (|x-{cut_x:.3f}| <= {args.section_half_width:.2f} m)")
+    ax_before.legend(loc="upper right", fontsize=7, frameon=True)
+    set_matched_2d_section_axes(ax_before, full_points)
+
+    ax_after = fig.add_subplot(2, 2, 4)
+    ax_after.scatter(
+        exterior_sec[:, 1],
+        exterior_sec[:, 2],
+        s=2.3,
+        c=label_colors(exterior_sec_labels),
+        alpha=0.82,
+        linewidths=0,
+    )
+    ax_after.set_title("Same half-cut section after exterior-only filtering")
+    set_matched_2d_section_axes(ax_after, full_points)
+
+    retained_pct = 100.0 * len(exterior_points) / max(len(full_points), 1)
+    fig.text(
+        0.5,
+        0.025,
+        f"All panels use matched metric scales. Bottom sections verify hidden/interior source samples are removed "
+        f"({retained_pct:.1f}% retained overall).",
+        ha="center",
+        fontsize=9,
+        color="#5A6470",
+    )
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    section_scan_fig_path = OUT_DIR / f"exterior_filter_section_scan_scene{args.scene_id:03d}.png"
+    fig.savefig(section_scan_fig_path, bbox_inches="tight")
+    plt.close(fig)
+
     print(summary.to_string(index=False))
     print(fig_path)
     print(section_fig_path)
+    print(section_scan_fig_path)
     print(summary_path)
 
 

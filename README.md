@@ -69,7 +69,8 @@ fragmentation monitoring system.
 ## Exterior Filter Update
 
 The exterior scan filter was updated after diagnosing that the previous global
-top-envelope cleanup removed visible side/slope points. The new
-`preserve_side_visible` mode keeps points seen from side viewpoints and applies
-the height-envelope cleanup only as an overhead/interior safeguard. See
-`results/figures/exterior_filter_diagnostic_scene000.png` for the comparison.
+top-envelope cleanup removed visible side/slope points while sparse angular
+visibility bins could still leak hidden interior points. The new depth-buffer
+visibility pass checks neighbouring angular bins to close pinholes, then keeps a
+thin exterior shell. See `results/figures/exterior_filter_section_scan_scene000.png`
+for the photogrammetry-style half-section diagnostic.
