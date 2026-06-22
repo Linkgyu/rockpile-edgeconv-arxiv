@@ -53,6 +53,13 @@ def set_equal_3d(ax, points: np.ndarray) -> None:
     ax.view_init(elev=22, azim=-58)
 
 
+def half_cut(points: np.ndarray, labels: np.ndarray, cut_x: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return one half of the pile so the interior section is visible."""
+
+    keep = points[:, 0] <= cut_x
+    return points[keep], labels[keep]
+
+
 def summarize(name: str, points: np.ndarray, labels: np.ndarray, full_labels: np.ndarray) -> dict:
     counts = pd.Series(labels).value_counts()
     full_counts = pd.Series(full_labels).value_counts()
@@ -154,8 +161,31 @@ def main() -> None:
     fig.savefig(fig_path, bbox_inches="tight")
     plt.close(fig)
 
+    cut_x = float(np.median(full_points[:, 0]))
+    section_panels = [
+        ("A. Full sampled surface, half cut", full_points, full_labels),
+        ("B. Viewpoint visible, half cut", view_points, view_labels),
+        ("C. Old top-only envelope, half cut", old_points, old_labels),
+        ("D. New preserve-side envelope, half cut", new_points, new_labels),
+    ]
+    fig = plt.figure(figsize=(14, 10), dpi=170)
+    for i, (title, points, labels) in enumerate(section_panels, start=1):
+        ax = fig.add_subplot(2, 2, i, projection="3d")
+        section_points, section_labels = half_cut(points, labels, cut_x)
+        pts, labs = downsample(section_points, section_labels, args.max_plot_points, seed=100 + i)
+        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], c=label_colors(labs), s=1.8, alpha=0.82, linewidths=0)
+        ax.set_title(f"{title}\n{len(section_points):,} section points")
+        set_equal_3d(ax, full_points)
+        ax.view_init(elev=18, azim=-82)
+    fig.suptitle(f"Exterior filter half-cut diagnostic: x <= {cut_x:.3f} m", y=0.98)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    section_fig_path = OUT_DIR / f"exterior_filter_halfcut_scene{args.scene_id:03d}.png"
+    fig.savefig(section_fig_path, bbox_inches="tight")
+    plt.close(fig)
+
     print(summary.to_string(index=False))
     print(fig_path)
+    print(section_fig_path)
     print(summary_path)
 
 
