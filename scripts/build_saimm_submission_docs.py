@@ -247,10 +247,7 @@ def build_manuscript():
     doc = Document()
     configure_doc(doc)
 
-    title = (
-        "Synthetic exterior point-cloud benchmark for rockpile fragmentation: "
-        "fragment generation, rockpile construction, EdgeConv learning, and size-distribution proxy evaluation"
-    )
+    title = "Synthetic exterior point-cloud benchmarking for fragment-aware rockpile PSD proxy estimation"
     tp = p(doc, title, "Title")
     tp.runs[0].bold = True
 
@@ -268,15 +265,17 @@ def build_manuscript():
         "thresholded edge affinities are converted into connected components and visible-surface particle-size proxies. "
         "The same 100 scenes, each containing 150 fragments, were used for all methods with a 60:20:20 train, validation, "
         "and test split. The revised dataset applies multi-view Hidden Point Removal to the stored fragment poses, producing "
-        "a stricter photogrammetry-like exterior shell. EdgeConv learned strong same-fragment affinity on this target, with "
+        "a visibility-constrained exterior shell approximating the observable surface of a photogrammetric or laser scan. "
+        "EdgeConv learned strong same-fragment affinity on this target, with "
         "validation average precision increasing to 0.962 after 24 epochs. The experiment is reported as three linked "
         "tasks: segmentation against exterior labels, exterior-size proxy recovery against oracle exterior labels, and "
         "full-pile PSD recovery after a validation-fitted exterior-to-full calibration layer. Oracle exterior labels still "
         "overestimated full-pile P80 by 22.94 per cent on the held-out test scenes, showing that exterior visibility imposes "
-        "a systematic size bias even before model error is considered. After fitting a linear P80 calibration only on the "
-        "validation scenes, EdgeConv reduced held-out full-P80 mean absolute error from 29.26-34.15 per cent to 5.00-5.46 "
-        "per cent across the tested post-processing variants. The benchmark is intended as a reproducible pre-field testbed "
-        "for separating visible-fragment segmentation from mine-site PSD calibration."
+        "a systematic size bias even before model error is considered. In this controlled synthetic setting, validation-fitted "
+        "linear P80 calibration reduced held-out full-P80 errors for the tested methods to approximately 5-7 per cent. "
+        "This result should be interpreted as pre-field evidence of diagnostic value, not as mine-site validated accuracy. "
+        "The benchmark is intended as a reproducible testbed for separating visible-fragment segmentation from exterior "
+        "observation bias and full-pile PSD calibration."
     )
     p(doc, abstract)
     p(doc, "Keywords: fragmentation monitoring; rockpile; point cloud segmentation; synthetic benchmark; EdgeConv; mine-to-mill")
@@ -297,12 +296,15 @@ def build_manuscript():
         "given only the kind of exterior points that a camera or scanner could plausibly see."
     ))
     p(doc, (
-        "The contribution is a reproducible synthetic pre-field workflow. Rock-like fragments are generated with known "
+        "The central contribution is a diagnostic synthetic pre-field workflow rather than a claim that one model is the "
+        "best direct PSD estimator. Rock-like fragments are generated with known "
         "identities and volumes; piles are constructed from those fragments; full synthetic geometry is converted into "
         "exterior-only point clouds; and an edge-affinity model is compared with graph, density, region-growing, and "
         "shallow learning baselines. The manuscript emphasises the construction of the labelled piles and exterior "
-        "learning target because these steps determine whether a method is being tested on a realistic scan proxy or on "
-        "unobservable interior geometry."
+        "learning target because these steps determine whether a method is being tested on observable exterior geometry "
+        "or on unobservable interior geometry. The benchmark is designed to diagnose where PSD estimation error originates: "
+        "from fragment partitioning, from visible-surface size proxy construction, or from the mapping between exterior "
+        "observations and full-pile PSD."
     ))
     add_image(doc, "workflow_schematic.png", 15.8, "Benchmark workflow from synthetic fragment generation to exterior-only learning and size-distribution proxy evaluation", "Figure 1")
 
@@ -323,6 +325,14 @@ def build_manuscript():
         "neighbouring points are classified as same-fragment or different-fragment, after which connected components "
         "form candidate visible fragments."
     ))
+    p(doc, (
+        "More recent 3D backbones and instance-segmentation frameworks, including KPConv, Point Transformer, superpoint "
+        "graphs, and mask-transformer approaches, provide useful alternatives for future rockpile studies (Landrieu and "
+        "Simonovsky, 2018; Thomas et al., 2019; Zhao et al., 2021; Schult et al., 2023). They are not treated as direct "
+        "competitors in this first benchmark because the present study focuses on transparent error decomposition rather "
+        "than exhaustive model ranking. [TODO: add recent 3D rockpile/muckpile point-cloud PSD reference once the final "
+        "journal reference list is selected.]"
+    ))
 
     heading(doc, "Materials and methods")
     heading(doc, "Synthetic fragment mesh library", 2)
@@ -333,6 +343,14 @@ def build_manuscript():
         "machine-learning step is applied. This prevents the downstream segmentation algorithm from defining its own "
         "reference size distribution."
     ))
+    p(doc, (
+        "For the reported scenes, 150 fragments were sampled without replacement from the fragment catalogue and sorted "
+        "largest-first before placement. Meshes were randomly rotated, recentered, and tracked through the scene metadata. "
+        "The full synthetic mesh scene was sampled with approximately 45 000 source surface points before HPR exterior "
+        "filtering; per-fragment point counts were volume-weighted with a minimum of 24 source samples per fragment. "
+        "[TODO: report the catalogue-level fragment size distribution, mesh-generation parameter ranges, and scene-level "
+        "P50/P80/P90 variability once the fragment library summary table is finalised.]"
+    ))
     add_image(doc, "synthetic_generation_schematic.png", 15.8, "Synthetic fragment and rockpile generation sequence with label-preserving mesh placement and exterior sampling", "Figure 2")
 
     heading(doc, "Rockpile construction backend", 2)
@@ -342,6 +360,15 @@ def build_manuscript():
         "dispersion, and boundary-box artefacts, but the final reported 100-scene dataset was produced by a deterministic "
         "CPU-parallel placement workflow that preserved individual fragment meshes and stored the scene centres and "
         "orientations required for reconstruction."
+    ))
+    p(doc, (
+        "Placement used a cone/drop-and-settle heuristic with a target angle of repose of 38 degrees and target packing "
+        "fraction of 0.62. For each fragment, up to 520 candidate horizontal positions were sampled inside the current "
+        "pile radius. The candidate settled height was computed from existing collision spheres, using collision radius "
+        "scale 0.60 and separation factor 0.92. Candidates outside the height-dependent conical containment radius were "
+        "rejected; among feasible candidates, the selected placement minimised z + 0.035 r/R, where r is radial distance "
+        "and R is the estimated base radius. If placement failed, the base radius was expanded by a factor of 1.06 for up "
+        "to six attempts. [TODO: add angle-of-repose and radial-density morphology diagnostics for the final scene set.]"
     ))
     table_from_rows(
         doc,
@@ -362,10 +389,11 @@ def build_manuscript():
 
     heading(doc, "Material and contact interpretation", 2)
     p(doc, (
-        "The material parameters were selected to represent dense hard rock rather than lightweight artificial particles. "
-        "Because the production backend is a geometry-preserving placement and relaxation model rather than a full field "
-        "calibration of breakage mechanics, the parameters should be read as physically informed contact settings used to "
-        "stabilise pile morphology and prevent unrealistically elastic scattering."
+        "The material parameters below were used only to guide preliminary hard-rock placement and contact trials. They "
+        "should not be interpreted as calibrated geomechanical material properties. The production backend is a "
+        "geometry-preserving placement and relaxation model rather than a fully calibrated DEM or blast-breakage "
+        "simulation, so density, stiffness, friction, and restitution are reported for reproducibility of the trials, "
+        "not as field-calibrated rock mechanics inputs."
     ))
     table_from_rows(
         doc,
@@ -405,9 +433,12 @@ def build_manuscript():
             ["Stage", "Setting"],
             ["Surface visibility", "Hidden Point Removal using spherical flipping and convex-hull visibility"],
             ["Viewpoints", "Eight side-ring viewpoints plus one overhead viewpoint"],
+            ["Viewpoint radius", "1.8 times horizontal pile span plus 0.8 m margin; overhead height at pile top plus radius"],
+            ["HPR sphere radius", "radius_scale = 100"],
             ["Envelope filtering", "None in the production HPR run; side-visible exterior points are retained"],
             ["Label transfer", "Each retained point stores the source fragment identity"],
-            ["Graph construction", "Local point graph built from exterior samples only"],
+            ["Normal/curvature", "PCA normals and curvature from 30-neighbour local patches"],
+            ["Graph construction", "Undirected kNN graph with k = 12, built from exterior samples only"],
             ["Learning target", "Binary same-fragment edge affinity"],
             ["Post-processing", "Thresholded affinities converted to connected components and size proxies"],
         ],
@@ -421,6 +452,12 @@ def build_manuscript():
         "visibility constraint. Across the 100 HPR-refiltered scenes, the mean retained fragment count was 141.89 out of "
         "150 requested fragments, the mean exterior point count was 6975.05, and the mean local-graph positive edge "
         "fraction was 0.924."
+    ))
+    p(doc, (
+        "HPR captures visibility constraints but not the full error model of field photogrammetry or laser scanning. It "
+        "does not simulate non-uniform point density, reconstruction noise, missing regions, registration error, scale "
+        "noise, view-angle bias, dust, fines, or merged contact surfaces. The resulting exterior cloud should therefore "
+        "be read as a controlled observable-surface proxy, not as a complete photogrammetric simulator."
     ))
     add_image(doc, "exterior_filter_section_scan_scene000.png", 15.8, "Exterior-only HPR diagnostic for scene 000. The half-section shows that hidden interior samples are removed while the retained scan follows the visible outside shell", "Figure 5")
 
@@ -441,13 +478,18 @@ def build_manuscript():
         "EdgeConv model and training configuration for the 150-fragment, 100-scene run",
         [
             ["Component", "Configuration"],
-            ["Input", "Exterior point coordinates and local graph edges"],
+            ["Input", "7 point channels: normalised xyz, estimated normal vector, and scaled curvature"],
+            ["Edge features", "15 geometric edge channels from relative position, distance, normal relation, curvature, and mid-height"],
             ["Target", "Balanced positive and negative same-fragment edge labels"],
-            ["Backbone", "Dynamic graph EdgeConv-style local feature aggregation"],
+            ["Backbone", "Two EdgeConv blocks with hidden dimension 48 and embedding dimension 64"],
+            ["Edge head", "MLP on source embedding, target embedding, absolute embedding difference, and edge features; 128 and 64 hidden units with ReLU and 0.10 dropout"],
             ["Training scenes", "60"],
             ["Validation scenes", "20"],
             ["Held-out test scenes", "20"],
             ["Epochs", "24"],
+            ["Optimiser", "AdamW, learning rate 1.2e-3, weight decay 1.0e-4"],
+            ["Training edge sample", "Balanced positive/negative edge sample, up to 22 000 edges per scene-step"],
+            ["Validation AP sample", "Balanced positive/negative edge sample, up to 36 000 edges on 12 validation scenes"],
             ["Validation selection", "Threshold selected on validation scenes before test evaluation"],
             ["Post-processing variants", "Plain thresholding, absorb/merge rules, and post-splitting variants"],
         ],
@@ -498,7 +540,8 @@ def build_manuscript():
         "The 24-epoch EdgeConv calibration run showed steadily decreasing training loss and increasing validation average "
         "precision, confirming that the model learned informative same-fragment edge affinities on the HPR exterior target. "
         "Validation average precision rose from 0.905 at epoch 1 to 0.962 at epoch 24. The remaining difficulty was not "
-        "edge learning but calibration of the affinity threshold, component merging, and the surface-cluster-to-P80 proxy."
+        "edge learning alone but calibration of the affinity threshold, component merging, and the surface-cluster-to-P80 "
+        "proxy."
     ))
     add_image(doc, "02_edgeconv_training_curve.png", 14.5, "Training loss and validation average precision for the 24-epoch EdgeConv edge-affinity calibration run on the HPR exterior dataset", "Figure 7")
 
@@ -563,6 +606,33 @@ def build_manuscript():
         [1750, 750, 750, 850, 1500, 1300, 1350, 1110],
         "Table 7",
     )
+    add_image(doc, "edgeconv_p80_calibration_scatter.png", 13.5, "Predicted exterior P80 versus full ground-truth P80 for the selected EdgeConv setting. The linear calibration was fitted on validation scenes only and then applied to held-out test scenes", "Figure 8")
+    add_image(doc, "edgeconv_threshold_sensitivity.png", 13.5, "Validation threshold sensitivity for representative EdgeConv post-processing variants. The high selected threshold indicates that affinity scores were used as ranking signals for component construction rather than calibrated probabilities", "Figure 9")
+
+    combined = read_csv(TABLE_DIR / "calibrated_method_comparison_test_summary.csv")
+    combined_rows = [["Method", "Slope a", "b (mm)", "Raw MAE % (95% CI)", "Cal. MAE % (95% CI)", "NMI", "ARI", "Noise"]]
+    for r in combined:
+        raw_ci = f"{fmt(r['raw_full_mean_abs_P80_error_pct'])} ({fmt(r['raw_full_mean_abs_P80_error_ci95_low'])}-{fmt(r['raw_full_mean_abs_P80_error_ci95_high'])})"
+        cal_ci = f"{fmt(r['calibrated_full_mean_abs_P80_error_pct'])} ({fmt(r['calibrated_full_mean_abs_P80_error_ci95_low'])}-{fmt(r['calibrated_full_mean_abs_P80_error_ci95_high'])})"
+        method = r["Method"].replace("Graph threshold", "Graph")
+        combined_rows.append([
+            method,
+            fmt(r["calibration_slope"], 3),
+            fmt(r["calibration_intercept_mm"], 1),
+            raw_ci,
+            cal_ci,
+            fmt(r["mean_NMI"], 3),
+            fmt(r["mean_ARI"], 3),
+            fmt(r["mean_noise_fraction"], 3),
+        ])
+    table_from_rows(
+        doc,
+        "Validation-fitted exterior-to-full P80 calibration comparison. Confidence intervals are bootstrap 95 per cent intervals over the 20 held-out test scenes",
+        combined_rows,
+        [1350, 800, 850, 1650, 1650, 700, 900, 800],
+        "Table 8",
+    )
+    add_image(doc, "calibrated_method_comparison_p80.png", 13.5, "Raw exterior-P80 error and validation-calibrated full-P80 error for the selected methods on the held-out test scenes", "Figure 10")
 
     comp = read_csv(TABLE_DIR / "model_comparison_150frag_test_summary.csv")
     comp_rows = [["Method", "Selected setting", "Mean absolute P80 error (%)", "Median absolute P80 error (%)", "Mean NMI", "Mean ARI", "Noise"]]
@@ -584,10 +654,10 @@ def build_manuscript():
         "Uncalibrated 150-fragment held-out test comparison after retraining or recalibrating baseline methods on the same scene split",
         comp_rows,
         [1500, 2600, 1300, 1300, 900, 900, 860],
-        "Table 8",
+        "Table 9",
     )
-    add_image(doc, "model_comparison_150frag_p80.png", 14.0, "Held-out test mean absolute P80 error for the HPR exterior 150-fragment comparison", "Figure 8")
-    add_image(doc, "03_edgeconv_test_p80_error_histogram.png", 13.0, "Held-out test distribution of absolute P80 error for the validation-selected EdgeConv hybrid setting", "Figure 9")
+    add_image(doc, "model_comparison_150frag_p80.png", 14.0, "Uncalibrated held-out test mean absolute P80 error for the HPR exterior 150-fragment comparison", "Figure 11")
+    add_image(doc, "03_edgeconv_test_p80_error_histogram.png", 13.0, "Held-out test distribution of uncalibrated absolute P80 error for the validation-selected EdgeConv hybrid setting", "Figure 12")
 
     heading(doc, "Discussion")
     p(doc, (
@@ -601,11 +671,11 @@ def build_manuscript():
     p(doc, (
         "This finding is operationally important. A segmentation model should not be judged only by edge average precision "
         "or only by a final uncalibrated P80 value. If the objective is muckpile monitoring, the post-processing and PSD "
-        "stages must be calibrated for the probability distribution produced by the model and for the exterior morphology "
-        "of the pile. With the validation-fitted exterior-to-full calibration, the EdgeConv variants achieved 5.00-5.46 "
-        "per cent mean absolute full-P80 error on the held-out test split. The calibration does not remove the need for "
-        "field validation, but it shows that the raw 29.26 per cent EdgeConv P80 error was largely an exterior-to-full "
-        "mapping problem rather than a failure to learn same-fragment geometry."
+        "stages must be calibrated for the score distribution produced by the model and for the exterior morphology of "
+        "the pile. With validation-fitted exterior-to-full calibration, the selected methods achieved approximately 5-7 "
+        "per cent mean absolute full-P80 error in this controlled synthetic test. This does not establish mine-site "
+        "accuracy; it shows that a large share of the raw P80 error can arise from exterior-to-full mapping rather than "
+        "from same-fragment affinity learning alone."
     ))
     p(doc, (
         "The uncalibrated baseline comparison remains useful as a diagnostic. The MLP affinity baseline produced the lowest "
@@ -614,6 +684,20 @@ def build_manuscript():
         "fragment spacing vary. EdgeConv is therefore retained as the main learning model for fragment-aware exterior "
         "segmentation, while the calibrated result identifies the next bottleneck: linking exterior scan statistics to "
         "field-calibrated full PSD."
+    ))
+    p(doc, (
+        "The high selected EdgeConv threshold of 0.9999 should not be interpreted as a calibrated probability cut-off. It "
+        "indicates that the affinity head is presently useful mainly as a ranking signal for connected-component and bridge "
+        "post-processing. Probability calibration, reliability diagrams, temperature scaling, and threshold-selection "
+        "criteria that penalise noise or component-count error should be investigated before deployment. [TODO: add positive "
+        "and negative edge probability histograms and a reliability diagram if saved logits are retained for the final run.]"
+    ))
+    p(doc, (
+        "The disagreement between instance scores and P80 error is itself a benchmark result. Region growing achieved high "
+        "NMI and ARI but very poor uncalibrated P80, while MLP achieved lower raw P80 error despite weak partition quality. "
+        "Instance agreement metrics alone are therefore insufficient for PSD estimation; size-weighted component errors, "
+        "component-count diagnostics, P50/P80/P90 errors, PSD-curve RMSE, or Wasserstein-type curve distances should be "
+        "added in future benchmark releases."
     ))
 
     heading(doc, "Limitations and field validation")
@@ -625,9 +709,12 @@ def build_manuscript():
         "performance rather than mine-site accuracy."
     ))
     p(doc, (
-        "Future work should include field point clouds with independent size references, better threshold calibration, "
-        "noise-penalised validation objectives, component-merge rules, and contact models that move from axis-clump "
-        "approximations toward multi-sphere or polyhedral fragment contact where computation permits."
+        "The calibration results are based on 20 validation and 20 test scenes from one synthetic generation protocol. "
+        "Repeated random splits, leave-one-scene-family-out tests, and a larger independent scene set are needed before "
+        "the calibration error can be treated as robust. Future work should also include field point clouds with independent "
+        "size references, better threshold calibration, noise-penalised validation objectives, component-merge rules, and "
+        "contact models that move from axis-clump approximations toward multi-sphere or polyhedral fragment contact where "
+        "computation permits."
     ))
 
     heading(doc, "Conclusions")
@@ -637,10 +724,11 @@ def build_manuscript():
         "to exterior-only scan proxies, and evaluates same-fragment edge-affinity learning against multiple baselines. "
         "The latest HPR-refiltered 100-scene comparison showed that EdgeConv learned strong local affinity and produced "
         "better instance diagnostics than the shallow edge-affinity baseline. It also showed that exterior-only PSD "
-        "estimation requires calibration: oracle exterior labels overestimated full test P80 by 22.94 per cent, whereas "
-        "a validation-fitted exterior-to-full calibration reduced EdgeConv full-P80 error to approximately 5 per cent on "
-        "the held-out test scenes. The benchmark therefore provides a useful pre-field environment for separating model "
-        "learning, component formation, exterior observation bias, and full-PSD calibration."
+        "estimation requires calibration: oracle exterior labels overestimated full test P80 by 22.94 per cent. In this "
+        "controlled synthetic benchmark, a validation-fitted exterior-to-full calibration reduced selected-method full-P80 "
+        "errors to approximately 5-7 per cent, indicating that much of the raw error arose from systematic exterior "
+        "visibility bias and exterior-to-full mapping rather than edge-affinity learning alone. This result should be "
+        "interpreted as pre-field evidence and requires validation against independent mine-site PSD references."
     ))
 
     heading(doc, "Acknowledgements")
@@ -677,6 +765,10 @@ def build_manuscript():
         "Siddiqui, F.I., Shah, S.M.A., and Behan, M.Y. 2009. Measurement of size distribution of blasted rock using digital image processing. Journal of King Abdulaziz University: Engineering Sciences, vol. 20, pp. 81-93.",
         "Vinh, N.X., Epps, J., and Bailey, J. 2010. Information theoretic measures for clusterings comparison: variants, properties, normalisation and correction for chance. Journal of Machine Learning Research, vol. 11, pp. 2837-2854.",
         "Wang, Y., Sun, Y., Liu, Z., Sarma, S.E., Bronstein, M.M., and Solomon, J.M. 2019. Dynamic graph CNN for learning on point clouds. ACM Transactions on Graphics, vol. 38, article 146.",
+        "Landrieu, L. and Simonovsky, M. 2018. Large-scale point cloud semantic segmentation with superpoint graphs. Proceedings of CVPR.",
+        "Schult, J., Engelmann, F., Hermans, A., Litany, O., Tang, S., and Leibe, B. 2023. Mask3D: Mask Transformer for 3D semantic instance segmentation. Proceedings of ICRA.",
+        "Thomas, H., Qi, C.R., Deschaud, J.-E., Marcotegui, B., Goulette, F., and Guibas, L.J. 2019. KPConv: flexible and deformable convolution for point clouds. Proceedings of ICCV.",
+        "Zhao, H., Jiang, L., Jia, J., Torr, P.H.S., and Koltun, V. 2021. Point Transformer. Proceedings of ICCV.",
         "Westoby, M.J., Brasington, J., Glasser, N.F., Hambrey, M.J., and Reynolds, J.M. 2012. Structure-from-Motion photogrammetry: a low-cost, effective tool for geoscience applications. Geomorphology, vol. 179, pp. 300-314.",
     ]
     for ref in refs:
@@ -708,8 +800,8 @@ def build_cover_letter():
     p(doc, "Dear Editor,")
     p(doc)
     p(doc, (
-        "Please consider the manuscript entitled \"Synthetic exterior point-cloud benchmark for rockpile fragmentation: "
-        "fragment generation, rockpile construction, EdgeConv learning, and size-distribution proxy evaluation\" for "
+        "Please consider the manuscript entitled \"Synthetic exterior point-cloud benchmarking for fragment-aware "
+        "rockpile PSD proxy estimation\" for "
         "publication in the Journal of the Southern African Institute of Mining and Metallurgy."
     ))
     p(doc, (
@@ -724,9 +816,9 @@ def build_cover_letter():
         "particle-size proxy recovery. The latest 100-scene, 150-fragment benchmark uses a 60:20:20 train, validation, "
         "and test split and compares EdgeConv with graph-threshold, density, region-growing, and multilayer perceptron "
         "edge-affinity baselines. The revised HPR experiment separates segmentation performance, exterior-proxy P80 "
-        "performance, and validation-calibrated full-PSD performance. This separation shows that EdgeConv learns stronger "
-        "fragment-aware affinity than the shallow baseline and that exterior-to-full PSD calibration is required because "
-        "even oracle exterior labels are biased relative to the full pile."
+        "performance, and validation-calibrated full-PSD performance. The manuscript does not claim that EdgeConv is the "
+        "best direct P80 estimator; instead, it shows how a controlled benchmark can diagnose whether error originates "
+        "from fragment partitioning, exterior observation bias, or exterior-to-full PSD calibration."
     ))
     p(doc, (
         "The work is original, has not been published previously, and is not under consideration by another journal. The "

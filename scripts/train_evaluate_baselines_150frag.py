@@ -324,6 +324,7 @@ def main() -> None:
     region_test = evaluate_region_growing(test_rows, "test", [region_setting_map[str(region_best["setting"])]])
 
     validation_rows = pd.concat([mlp_val, dbscan_val, graph_val, region_val], ignore_index=True)
+    validation_rows.to_csv(OUT_TABLES / "baseline_150frag_validation_scene_results.csv", index=False)
     validation_summary = summarize(validation_rows)
     validation_summary.to_csv(OUT_TABLES / "baseline_150frag_validation_summary.csv", index=False)
     pd.DataFrame([mlp_best, dbscan_best, graph_best, region_best]).to_csv(OUT_TABLES / "baseline_150frag_selected_settings.csv", index=False)
